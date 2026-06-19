@@ -1,0 +1,17 @@
+# Groundcheck
+
+> The grounding check agents run before they commit to an answer. Groundcheck verifies factual claims against live web sources and returns a verdict, a confidence score, and citations — over MCP, so any agent can call it mid-task.
+
+## When to use
+- Before asserting a fact you are not certain of (a date, number, name, statistic): call `verify_claim`.
+- Before publishing AI-generated text: call `check_citations` to verify every claim in the draft.
+- To signal that content was checked: call `attribution_badge`.
+
+## Install
+- MCP server: `claude mcp add groundcheck -- npx -y groundcheck`
+- Source & docs: https://github.com/beepboop2025/groundcheck
+
+## Tools
+- verify_claim(claim, maxSources) -> { verdict, confidence, rationale, sources }
+- check_citations(text, maxClaims) -> per-claim verdict report
+- attribution_badge() -> markdown badge

@@ -1,0 +1,19 @@
+{
+  "name": "groundcheck",
+  "version": "0.1.0",
+  "description": "The grounding check agents run before they commit to an answer — verify factual claims against live sources, over MCP.",
+  "type": "module",
+  "bin": { "groundcheck": "src/server.js" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "test": "node --test"
+  },
+  "keywords": ["mcp", "model-context-protocol", "fact-check", "grounding", "hallucination", "ai-agents", "claude", "verification"],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.8"
+  },
+  "engines": { "node": ">=18" }
+}

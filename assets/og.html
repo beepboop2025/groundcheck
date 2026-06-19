@@ -1,0 +1,140 @@
+<!doctype html>
+<!-- Groundcheck OG / social card. Edit freely, then run assets/build-og.py to rasterize. -->
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  :root { --w: 1200px; --h: 630px; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: var(--w); height: var(--h); }
+  body {
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    background:
+      radial-gradient(1100px 520px at 78% -10%, rgba(63,185,80,.10), transparent 60%),
+      radial-gradient(900px 600px at 8% 120%, rgba(88,166,255,.08), transparent 55%),
+      linear-gradient(160deg, #0a0e14 0%, #0c1119 55%, #090d13 100%);
+    color: #e6edf3;
+    overflow: hidden;
+    position: relative;
+  }
+  .mono { font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace; }
+
+  /* faint dotted grid */
+  .grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(900px 500px at 30% 35%, #000 30%, transparent 80%);
+  }
+
+  .frame { position: relative; height: 100%; padding: 70px 76px; display: flex; flex-direction: column; }
+
+  .eyebrow {
+    font-size: 19px; letter-spacing: 4px; font-weight: 600;
+    color: #6b7787; text-transform: uppercase;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .eyebrow .dot { width: 9px; height: 9px; border-radius: 50%; background: #3fb950; box-shadow: 0 0 12px #3fb950; }
+
+  .head { display: flex; align-items: center; gap: 24px; margin-top: 54px; }
+  .logo {
+    width: 86px; height: 86px; border-radius: 22px; flex: none;
+    background: linear-gradient(155deg, #19251c, #0e1411);
+    border: 1.5px solid rgba(63,185,80,.45);
+    box-shadow: 0 0 0 1px rgba(63,185,80,.10), 0 18px 50px rgba(63,185,80,.18);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logo svg { width: 46px; height: 46px; }
+  .wordmark { font-size: 96px; font-weight: 800; letter-spacing: -3.5px; line-height: .95; }
+  .wordmark .k { color: #3fb950; }
+
+  .tagline {
+    margin-top: 30px; max-width: 640px;
+    font-size: 31px; line-height: 1.34; font-weight: 500; color: #aab6c4;
+  }
+  .tagline b { color: #e6edf3; font-weight: 600; }
+
+  /* verdict proof chip */
+  .chip {
+    position: absolute; right: 76px; top: 188px; width: 360px;
+    background: linear-gradient(180deg, rgba(20,28,40,.92), rgba(13,19,28,.92));
+    border: 1px solid rgba(255,255,255,.09); border-radius: 18px;
+    padding: 22px 24px; backdrop-filter: blur(4px);
+    box-shadow: 0 24px 70px rgba(0,0,0,.45);
+  }
+  .chip .call { font-size: 17px; color: #8b97a7; }
+  .chip .call .fn { color: #79c0ff; }
+  .chip .call .str { color: #a5d6a4; }
+  .chip .verdict {
+    margin-top: 18px; display: flex; align-items: center; gap: 12px;
+    font-size: 30px; font-weight: 700; color: #3fb950;
+  }
+  .chip .pill {
+    margin-left: auto; font-size: 17px; font-weight: 700; color: #3fb950;
+    background: rgba(63,185,80,.14); border: 1px solid rgba(63,185,80,.35);
+    padding: 4px 12px; border-radius: 999px;
+  }
+  .chip .meta { margin-top: 12px; font-size: 15px; color: #6b7787; }
+
+  /* the ground line */
+  .ground { position: absolute; left: 0; right: 0; bottom: 132px; height: 1px; }
+  .ground .line {
+    height: 1px; width: 100%;
+    background: linear-gradient(90deg, transparent, rgba(63,185,80,.55) 18%, rgba(63,185,80,.55) 82%, transparent);
+  }
+  .ground .ticks { position: absolute; left: 0; right: 0; top: -7px; height: 14px;
+    background-image: linear-gradient(90deg, rgba(63,185,80,.45) 1px, transparent 1px);
+    background-size: 56px 14px;
+    mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  }
+
+  .foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; }
+  .install { font-size: 24px; color: #c9d4e0; }
+  .install .p { color: #4d5765; }
+  .badge {
+    display: flex; align-items: center; gap: 9px; font-size: 19px; font-weight: 600;
+    color: #3fb950; border: 1px solid rgba(63,185,80,.4);
+    background: rgba(63,185,80,.10); padding: 8px 16px; border-radius: 10px;
+  }
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="frame">
+    <div class="eyebrow"><span class="dot"></span> Model Context Protocol Server</div>
+
+    <div class="head">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="M9 12l2 2 4-4"/>
+        </svg>
+      </div>
+      <div class="wordmark">Ground<span class="k">check</span></div>
+    </div>
+
+    <div class="tagline">The grounding check agents run <b>before they commit to an answer.</b> Verify a claim against live sources — verdict, confidence, citations.</div>
+
+    <div class="chip">
+      <div class="call mono"><span class="fn">verify_claim</span>(<span class="str">"…"</span>)</div>
+      <div class="verdict mono">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        supported <span class="pill">91%</span>
+      </div>
+      <div class="meta mono">3 sources support · none disagree</div>
+    </div>
+
+    <div class="ground"><div class="ticks"></div><div class="line"></div></div>
+
+    <div class="foot">
+      <div class="install mono"><span class="p">$</span> npx groundcheck</div>
+      <div class="badge">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        open source · MIT
+      </div>
+    </div>
+  </div>
+</body>
+</html>
