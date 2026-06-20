@@ -1,0 +1,17 @@
+# Keep the Vercel upload to just the engine + function.
+server/
+assets/
+drafts/
+*.md
+SEEDING.md
+SKILL.md
+llms.txt
+Makefile
+docker-compose.yml
+engine/Dockerfile
+engine/tests/
+engine/pyproject.toml
+engine/requirements.txt
+**/__pycache__/
+.pytest_cache/
+.git/

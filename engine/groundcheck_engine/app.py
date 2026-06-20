@@ -1,17 +1,22 @@
 """FastAPI app exposing the Groundcheck engine.
 
 Endpoints:
-  GET  /health           liveness + which retrieval backend is active
-  GET  /search?q=&n=     the documented GROUNDCHECK_SEARCH_URL contract ({results:[...]})
-  POST /verify           retrieve -> classify stance -> verdict for one claim
-  POST /check            extract claims from text and verify each
+  GET  /            interactive landing page / live demo (HTML)
+  GET  /health      liveness + which retrieval backend is active
+  GET  /search?q=&n=  the documented GROUNDCHECK_SEARCH_URL contract ({results:[...]})
+  POST /verify      retrieve -> classify stance -> verdict for one claim
+  POST /check       extract claims from text and verify each
 """
 import re
-from typing import List
+import time
+from collections import defaultdict, deque
+from typing import Deque, Dict, List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from .landing import LANDING_HTML
 from .models import CheckResult, ClaimReport, Source, VerifyResult
 from .retrieval import Retriever
 from .stance import classify_stances
@@ -21,6 +26,31 @@ app = FastAPI(title="Groundcheck Engine", version="0.2.0")
 retriever = Retriever()
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
+
+# Best-effort per-IP rate limit on the public demo, to protect free LLM quota.
+# (Serverless instances are ephemeral, so this caps bursts per warm instance.)
+_RL_WINDOW = 60.0
+_RL_MAX = 30
+_hits: Dict[str, Deque[float]] = defaultdict(deque)
+
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    if request.method == "POST":
+        ip = request.client.host if request.client else "anon"
+        now = time.time()
+        dq = _hits[ip]
+        while dq and now - dq[0] > _RL_WINDOW:
+            dq.popleft()
+        if len(dq) >= _RL_MAX:
+            return JSONResponse({"error": "rate limited — try again in a minute"}, status_code=429)
+        dq.append(now)
+    return await call_next(request)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def landing() -> str:
+    return LANDING_HTML
 
 
 class VerifyRequest(BaseModel):
