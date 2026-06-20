@@ -5,7 +5,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { ENGINE_URL, checkCitations, engineReachable, verifyClaim } from "./engine.js";
+import { ENGINE_URL, checkCitations, verifyClaim } from "./engine.js";
+import { ensureEngine } from "./spawn.js";
 import { attributionBadge, attributionFooter } from "./attribution.js";
 import type { VerifyResult } from "./types.js";
 
@@ -69,9 +70,25 @@ server.tool(
   async () => ({ content: [{ type: "text", text: attributionBadge() }] })
 );
 
+// Make sure an engine is available before exposing tools — reuse a running one,
+// otherwise auto-spawn it. Never throws; tools degrade honestly if it's absent.
+const engine = await ensureEngine();
+const ENGINE_STATUS: Record<typeof engine.status, string> = {
+  reachable: `engine reachable ✓ (${ENGINE_URL})`,
+  spawned: `engine auto-started ✓ — ${engine.detail}`,
+  disabled: `engine auto-spawn disabled (GROUNDCHECK_NO_SPAWN); expecting one at ${ENGINE_URL}`,
+  "not-found": `engine UNREACHABLE — ${engine.detail}`,
+  failed: `engine UNREACHABLE — ${engine.detail}`,
+};
+
+// Exit when the client goes away (stdin EOF / transport close) so the process
+// `exit` handler stops any engine we auto-spawned — otherwise it would orphan.
+// Listen on both the protocol close and stdin directly (belt and suspenders).
+const shutdown = () => process.exit(0);
+server.server.onclose = shutdown;
+process.stdin.once("end", shutdown);
+process.stdin.once("close", shutdown);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
-const reachable = await engineReachable();
-console.error(
-  `groundcheck MCP server up — engine ${ENGINE_URL} ${reachable ? "reachable ✓" : "UNREACHABLE (start it: docker compose up -d / make engine)"}`
-);
+console.error(`groundcheck MCP server up — ${ENGINE_STATUS[engine.status]}`);

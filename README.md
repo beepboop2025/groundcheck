@@ -41,22 +41,25 @@ verify_claim ─▶ TS MCP server ─HTTP▶ Python engine
 
 ## Quickstart
 
+The MCP server **auto-starts the Python engine** if one isn't already running, so a single
+registration is enough — no separate process to babysit.
+
 ```bash
-# 1. install both halves
-make install                      # pip (engine) + npm (server)
+make install                      # deps for both halves (pip + npm)
+npm --prefix server run build     # compile the server
+export GROQ_API_KEY="gsk_..."     # one free key for stance classification (Groq: ~2 min, 14,400/day)
 
-# 2. give the engine one free LLM key for stance classification (Groq is easiest)
-export GROQ_API_KEY="gsk_..."     # ~2 min, 14,400 req/day free
-
-# 3. run the engine (FastAPI on :8723)
-make engine                       # or: docker compose up -d  (after `make vendor-router`)
-
-# 4. register the MCP server with your client
-claude mcp add groundcheck -- npx -y groundcheck
-#   (local dev, before npm publish:)
-#   npm --prefix server run build
-#   claude mcp add groundcheck -- node "$PWD/server/dist/server.js"
+# register with your MCP client — the engine spawns on first use and stops with the server
+claude mcp add groundcheck -- node "$PWD/server/dist/server.js"
 ```
+
+Already running the engine yourself (`make engine` or `docker compose up -d`)? The server
+detects and **reuses** it — and won't touch an engine it didn't start. Set
+`GROUNDCHECK_NO_SPAWN=1` to stop it from ever spawning one.
+
+> Once published to npm, registration becomes `claude mcp add groundcheck -- npx -y groundcheck`.
+> Auto-spawn needs a local `engine/` + Python deps; for an npx-only install, run the engine via
+> `docker compose up -d` and the server connects to it over `GROUNDCHECK_ENGINE_URL`.
 
 With **no** provider key the engine still runs — retrieval works, but every verdict is
 `unverified`. It degrades honestly: a disabled backend, a missing key, or conflicting sources
@@ -76,8 +79,15 @@ all flow toward `unverified`. An unconfigured Groundcheck **cannot** return `sup
 | `GROUNDCHECK_ENGINE_HOST` / `_PORT` | `127.0.0.1` / `8723` | engine bind address |
 | `GROQ_API_KEY` _(or any router provider key)_ | — | enables stance classification |
 
-Server side: `GROUNDCHECK_ENGINE_URL` (where the server finds the engine) and
-`GROUNDCHECK_REPO_URL` (URL used in the attribution footer/badge).
+Server side:
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `GROUNDCHECK_ENGINE_URL` | `http://127.0.0.1:8723` | where the server finds the engine |
+| `GROUNDCHECK_NO_SPAWN` | _(unset)_ | set to disable auto-spawning the engine |
+| `GROUNDCHECK_ENGINE_DIR` | repo `engine/` | engine location for auto-spawn |
+| `GROUNDCHECK_PYTHON` | `python3` | interpreter used to spawn the engine |
+| `GROUNDCHECK_REPO_URL` | repo URL | URL used in the attribution footer/badge |
 
 ## Development
 
