@@ -76,27 +76,66 @@ document.querySelectorAll(".ex span").forEach(s => s.onclick = () => { input.val
 btn.onclick = verify;
 input.addEventListener("keydown", (e) => { if (e.key === "Enter") verify(); });
 
+// Build the DOM with textContent (never innerHTML) so engine/search-derived
+// strings can't inject markup, and only allow http(s) source links.
+const VERDICTS = { supported: 1, refuted: 1, unverified: 1 };
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function safeHref(url) {
+  try { const u = new URL(url); return (u.protocol === "http:" || u.protocol === "https:") ? u.href : null; }
+  catch { return null; }
+}
+function msg(text) { out.textContent = ""; out.appendChild(el("div", "rationale", text)); }
+
 async function verify() {
   const claim = input.value.trim() || input.placeholder;
   btn.disabled = true; btn.textContent = "…";
   out.style.display = "block";
-  out.innerHTML = '<div class="rationale">checking against live sources…</div>';
+  msg("checking against live sources…");
   try {
     const r = await fetch("/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ claim, max_sources: 4 }) });
-    if (r.status === 429) { out.innerHTML = '<div class="rationale">Rate limited — try again in a minute.</div>'; return; }
-    const j = await r.json();
-    const pct = Math.round((j.confidence || 0) * 100);
-    const srcs = (j.sources || []).map(s =>
-      `<div class="src"><span class="st">${s.stance || "—"}</span><a href="${s.url}" target="_blank">${s.title || s.url}</a></div>`).join("");
-    out.innerHTML =
-      `<div class="verdict ${j.verdict}"><span>${j.verdict}</span><span class="pill">${pct}%</span></div>` +
-      `<div class="rationale">${j.rationale} <em>(via ${j.backend} · ${j.classifier})</em></div>` +
-      `<div class="sources">${srcs}</div>`;
+    if (r.status === 429) { msg("Rate limited — try again in a minute."); return; }
+    render(await r.json());
   } catch (e) {
-    out.innerHTML = '<div class="rationale">Error reaching the engine.</div>';
+    msg("Error reaching the engine.");
   } finally {
     btn.disabled = false; btn.textContent = "Verify";
   }
+}
+
+function render(j) {
+  const pct = Math.round((j.confidence || 0) * 100);
+  out.textContent = "";
+
+  const vClass = VERDICTS[j.verdict] ? j.verdict : "unverified";
+  const vRow = el("div", "verdict " + vClass);
+  vRow.appendChild(el("span", null, j.verdict || "unverified"));
+  vRow.appendChild(el("span", "pill", pct + "%"));
+  out.appendChild(vRow);
+
+  const rat = el("div", "rationale", (j.rationale || "") + " ");
+  rat.appendChild(el("em", null, "(via " + j.backend + " · " + j.classifier + ")"));
+  out.appendChild(rat);
+
+  const wrap = el("div", "sources");
+  (j.sources || []).forEach(s => {
+    const row = el("div", "src");
+    row.appendChild(el("span", "st", s.stance || "—"));
+    const href = safeHref(s.url);
+    if (href) {
+      const a = el("a", null, s.title || s.url);
+      a.href = href; a.target = "_blank"; a.rel = "noopener noreferrer";
+      row.appendChild(a);
+    } else {
+      row.appendChild(el("span", null, s.title || s.url || ""));
+    }
+    wrap.appendChild(row);
+  });
+  out.appendChild(wrap);
 }
 </script>
 </body>
