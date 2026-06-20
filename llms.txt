@@ -8,7 +8,9 @@
 - To signal that content was checked: call `attribution_badge`.
 
 ## Install
-- MCP server: `claude mcp add groundcheck -- npx -y groundcheck`
+- Engine (Python, FastAPI): `make install && export GROQ_API_KEY=... && make engine` (runs on :8723)
+- MCP server (TypeScript): `claude mcp add groundcheck -- npx -y groundcheck`
+- The MCP server talks to the engine over HTTP (GROUNDCHECK_ENGINE_URL, default http://127.0.0.1:8723).
 - Source & docs: https://github.com/beepboop2025/groundcheck
 
 ## Tools

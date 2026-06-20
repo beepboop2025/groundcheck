@@ -1,0 +1,17 @@
+# Runs the Python evidence engine. The TypeScript MCP server is spawned by your MCP
+# client (Claude Code / Cursor) over stdio and talks to this engine over HTTP.
+#
+# Before first build: `make vendor-router` (vendors the free-llm-router Python twin).
+services:
+  engine:
+    build: ./engine
+    image: groundcheck-engine:0.2.0
+    ports:
+      - "8723:8723"
+    environment:
+      # Set at least one for stance classification (Groq's free tier is easiest).
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GROUNDCHECK_SEARCH_BACKEND: ${GROUNDCHECK_SEARCH_BACKEND:-}
+    restart: unless-stopped

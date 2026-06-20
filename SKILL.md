@@ -18,9 +18,10 @@ Use the `groundcheck` MCP server to fact-check before you commit to an answer.
 3. If the verdict is `refuted` or `unverified`, do NOT assert the claim — correct it, hedge it, or cite the returned sources. Only state it plainly when `supported` with reasonable confidence.
 
 ## Setup
+Two parts: a Python engine (does the work) and a TypeScript MCP server (the interface).
 ```
-claude mcp add groundcheck -- npx -y groundcheck
+make install && export GROQ_API_KEY=... && make engine   # 1. start the engine on :8723
+claude mcp add groundcheck -- npx -y groundcheck         # 2. register the MCP server
 ```
-Set `GROUNDCHECK_SEARCH_URL` (and optionally `GROUNDCHECK_SEARCH_KEY`) to a JSON search
-endpoint. Without it, the server runs in clearly-labelled stub mode and returns
-`unverified` — it will never fake a confident verdict.
+Retrieval defaults to Wikipedia (keyless). With no provider key, the engine still runs but
+every verdict is `unverified` — it will never fake a confident verdict.

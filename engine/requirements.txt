@@ -1,0 +1,10 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
+pydantic>=2.6
+pytest>=8
+
+# free-llm-router is the canonical Python twin and is NOT on PyPI. For local dev the
+# engine imports it from the sibling checkout via GROUNDCHECK_ROUTER_PATH
+# (default /Users/mrinal/free-llm-router/python). For Docker, vendor it first:
+#   make vendor-router
