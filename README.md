@@ -5,6 +5,9 @@
 
 # Groundcheck
 
+![tests](https://github.com/beepboop2025/groundcheck/actions/workflows/tests.yml/badge.svg)
+![coverage](https://img.shields.io/badge/coverage-80%25-brightgreen)
+
 ![Groundcheck — verify a factual claim against live sources, over MCP](assets/og-card.png)
 
 **The grounding check agents run before they commit to an answer.**
@@ -97,7 +100,8 @@ Server side:
 ## Development
 
 ```bash
-make test        # engine pytest (8 cases on the verdict rule) + server typecheck
+make test        # engine pytest (58 cases: verdict rule, stance parsing, retrieval
+                 #   backend selection, token-bucket / circuit-breaker) + server typecheck
 make engine      # run the engine
 make server      # run the MCP server in dev (tsx)
 make build       # compile the server to server/dist
