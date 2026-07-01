@@ -68,6 +68,26 @@ all flow toward `unverified`. An unconfigured Groundcheck **cannot** return `sup
 > Note: OpenRouter's `:free` models are quota-throttled (HTTP 429) and make a poor sole
 > provider. Prefer Groq or Cerebras for the fast classification tier.
 
+## Why grounded verdicts, not LLM-judgment
+
+Asking an LLM to *judge* whether a claim is true is unreliable in a way that's easy to miss.
+In **TraderBench** (Yuan et al., 2026), the *same* candidate responses re-scored by three
+frontier LLM judges swung by ~29 points on the knowledge-retrieval section — while the
+performance-grounded section, whose scoring is anchored to verifiable computation, swung 0.3.
+The lesson: **the more you constrain a judgment with external evidence, the less it varies.**
+
+Groundcheck is built on that principle. It never asks a model "is this true?" from parametric
+memory. Instead it:
+
+- **retrieves** sources first, then asks only the narrow, evidence-anchored question — does
+  *this cited passage* support, refute, or stay neutral on the claim (stance classification);
+- **refuses on conflict** and saturates confidence, so disagreement flows to `unverified`
+  rather than a confident guess;
+- **returns citations**, so the verdict is checkable, not taken on the model's word.
+
+That's the difference between an LLM judge and a grounding check: the judge's discretion is the
+product; here it's deliberately fenced in by retrieved evidence.
+
 ## Configuration (engine)
 
 | Var | Default | Purpose |
