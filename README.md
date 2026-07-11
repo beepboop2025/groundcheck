@@ -99,6 +99,15 @@ product; here it's deliberately fenced in by retrieved evidence.
 | `GROUNDCHECK_ENGINE_HOST` / `_PORT` | `127.0.0.1` / `8723` | engine bind address |
 | `GROQ_API_KEY` _(or any router provider key)_ | — | enables stance classification |
 
+### Machine-payable hosting (x402)
+
+A hosted engine can charge AI agents per `/check` call in USDC over the
+[x402 protocol](https://x402.org) — HTTP 402 + signed transfer authorization,
+no accounts or API keys. Dormant unless `GROUNDCHECK_X402_PAY_TO` is set;
+`/verify` stays free forever, `/check` gets a free daily quota per IP first.
+Both protocol generations (v1 and v2) are accepted, and agents can read the
+offer at `GET /.well-known/x402`. Full operator guide: [docs/x402.md](docs/x402.md).
+
 Server side:
 
 | Var | Default | Purpose |
@@ -112,7 +121,7 @@ Server side:
 ## Development
 
 ```bash
-make test        # engine pytest (8 cases on the verdict rule) + server typecheck
+make test        # engine pytest (verdict rule + x402 gating) + server typecheck
 make engine      # run the engine
 make server      # run the MCP server in dev (tsx)
 make build       # compile the server to server/dist

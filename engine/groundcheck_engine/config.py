@@ -12,3 +12,14 @@ ROUTER_PATH = os.getenv("GROUNDCHECK_ROUTER_PATH", "/Users/mrinal/free-llm-route
 # HTTP server bind.
 HOST = os.getenv("GROUNDCHECK_ENGINE_HOST", "127.0.0.1")
 PORT = int(os.getenv("GROUNDCHECK_ENGINE_PORT", "8723"))
+
+# ---- x402 pay-per-call (dormant unless GROUNDCHECK_X402_PAY_TO is set) ----
+# Endpoint path -> USD per call. /verify and /search stay free by design:
+# the single-claim surface is the adoption funnel; the batch document check
+# is the one that burns real retrieval + LLM budget per claim.
+X402_PRICES_USD = {
+    "/check": float(os.getenv("GROUNDCHECK_X402_PRICE_CHECK", "0.02")),
+}
+# Free /check calls per IP per UTC day before a 402 is returned (0 = none).
+# Best-effort per warm serverless instance, same caveat as the rate limiter.
+X402_FREE_PER_DAY = int(os.getenv("GROUNDCHECK_X402_FREE_PER_DAY", "5"))

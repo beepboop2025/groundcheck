@@ -10,6 +10,21 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (res.status === 402) {
+    // Hosted engines may charge per call via x402. Surface the offer instead
+    // of a bare error, and point at the always-free path.
+    const info = (await res.json().catch(() => null)) as {
+      error?: string;
+      accepts?: Array<{ maxAmountRequired?: string; network?: string }>;
+    } | null;
+    const offer = info?.accepts?.[0];
+    const usd = offer?.maxAmountRequired ? Number(offer.maxAmountRequired) / 1e6 : undefined;
+    throw new Error(
+      `engine requires payment (x402)${usd ? `: $${usd} USDC per call on ${offer?.network}` : ""}. ` +
+        `${info?.error ?? ""} Retry with an X-PAYMENT header (see /.well-known/x402 on the engine), ` +
+        `or run a local engine — it is free: https://github.com/beepboop2025/groundcheck`,
+    );
+  }
   if (!res.ok) {
     throw new Error(`engine ${res.status}: ${await res.text().catch(() => "")}`);
   }

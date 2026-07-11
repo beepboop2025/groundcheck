@@ -17,3 +17,11 @@
 - verify_claim(claim, maxSources) -> { verdict, confidence, rationale, sources }
 - check_citations(text, maxClaims) -> per-claim verdict report
 - attribution_badge() -> markdown badge
+
+## Pricing (x402, hosted engine only)
+- Running your own engine is free, always. Hosted deployments MAY enable x402 pay-per-call.
+- POST /verify (single claim): always free, rate-limited.
+- POST /check (batch document check): free daily quota per IP, then USD 0.02 per call in USDC.
+- Payment: x402 protocol, v1 and v2 both accepted (X-PAYMENT or PAYMENT-SIGNATURE header), "exact" scheme, USDC on Base (eip155:8453). No account or API key.
+- Machine-readable manifest: GET /.well-known/x402 on any x402-enabled deployment.
+- Flow: POST /check -> HTTP 402 with payment requirements -> sign EIP-3009 USDC authorization -> retry with payment header -> result + settlement receipt in X-PAYMENT-RESPONSE / PAYMENT-RESPONSE.
