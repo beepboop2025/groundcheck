@@ -1,3 +1,8 @@
+<!-- textura-banner -->
+<div align="center">
+  <a href="https://github.com/beepboop2025/groundcheck"><img src="./banner.svg" width="100%" alt="groundcheck" /></a>
+</div>
+
 # Groundcheck
 
 ![Groundcheck — verify a factual claim against live sources, over MCP](assets/og-card.png)
