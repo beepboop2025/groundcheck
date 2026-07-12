@@ -1,0 +1,72 @@
+name: deploy-hetzner
+
+# Auto-deploy to the Hetzner box on every merge to main.
+#
+# Two repo secrets (Settings → Secrets → Actions):
+#   HETZNER_HOST     the box's IP
+#   HETZNER_SSH_KEY  private half of a DEDICATED deploy key
+#
+# Defense in depth for a public repo:
+# - the engine test suite gates the deploy: a red tree never ships;
+# - the key's public half sits in root's authorized_keys behind a FORCED
+#   COMMAND (/root/groundcheck-deploy-wrapper.sh) with no-pty/no-forwarding,
+#   so even a leaked key can only trigger the deploy script, nothing else;
+# - the wrapper pulls, restarts, health-checks — and ROLLS BACK to the
+#   previous commit if the service comes up sick;
+# - the host key is PINNED below, closing the first-connection MITM window;
+# - secrets are never exposed to fork PRs (push-to-main + dispatch only).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-hetzner
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install engine deps
+        run: pip install -r requirements.txt pytest x402
+      - name: Engine tests (deploy gates on green)
+        run: cd engine && GROUNDCHECK_ROUTER_PATH="$PWD/vendor" python -m pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Deploy over SSH (forced-command wrapper on the box)
+        env:
+          HOST: ${{ secrets.HETZNER_HOST }}
+          KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$KEY" ]; then
+            echo "::error::HETZNER_HOST / HETZNER_SSH_KEY secrets not set — auto-deploy cannot run."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/hetzner_key
+          chmod 600 ~/.ssh/hetzner_key
+          # Pinned host key (public information; ed25519 key of the box).
+          printf '%s\n' "$HOST ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKAeD2Er1pFiZR4FPkgY5FeoNhXHy36kDDRCZMUVzABL" > ~/.ssh/known_hosts
+          # The forced command runs regardless of what is requested here; the
+          # word "deploy" is just a log-friendly placeholder.
+          ssh -i ~/.ssh/hetzner_key \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "root@$HOST" deploy
+      - name: Public health check
+        run: |
+          sleep 5
+          curl -sf -m 20 https://groundcheck.seiche.info/health | grep -q '"status":"ok"'
+          echo "groundcheck.seiche.info healthy"
