@@ -37,12 +37,29 @@ app = FastAPI(
 retriever = Retriever()
 
 
+def _deref(node, defs, depth=0):
+    """Inline $ref schemas: discovery scanners (x402scan) read operation
+    schemas literally and treat a bare $ref as 'missing input schema'."""
+    if depth > 12 or not isinstance(node, (dict, list)):
+        return node
+    if isinstance(node, list):
+        return [_deref(v, defs, depth + 1) for v in node]
+    ref = node.get("$ref", "")
+    if ref.startswith("#/components/schemas/"):
+        target = defs.get(ref.rsplit("/", 1)[-1], {})
+        merged = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
+        return _deref(merged, defs, depth + 1)
+    return {k: _deref(v, defs, depth + 1) for k, v in node.items()}
+
+
 def _custom_openapi() -> dict:
     """Mark /check as x402-paid and everything else as free (security: []) so
     discovery indexes probe only the paid surface."""
     if app.openapi_schema:
         return app.openapi_schema
     schema = _base_openapi()
+    defs = schema.get("components", {}).get("schemas", {})
+    schema["paths"] = _deref(schema.get("paths", {}), defs)
     schema["info"]["x-guidance"] = (
         "POST /verify with {claim} to ground one factual claim (free, rate "
         "limited). POST /check with {text} to extract and verify every claim "

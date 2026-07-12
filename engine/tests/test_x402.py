@@ -258,3 +258,4 @@ def test_openapi_discovery_contract():
     assert pinfo["price"]["currency"] == "USD"
     assert pinfo["protocols"] == [{"x402": {}}]
     assert check_op["requestBody"]["content"]["application/json"]["schema"]
+
