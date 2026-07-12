@@ -66,7 +66,11 @@ async def classify_stances(claim: str, sources: List[Source]) -> str:
             "role": "system",
             "content": (
                 "You judge whether each source supports, refutes, or is neutral toward a "
-                'factual claim. Reply with ONLY a compact JSON array like '
+                "factual claim. Judge ONLY from the snippet text shown for that source — do not "
+                "use outside knowledge and do not infer beyond what the snippet states. If a "
+                "snippet does not directly address the claim, its stance is 'neutral'; reserve "
+                "'supports'/'refutes' for snippets whose own words bear on the claim. "
+                'Reply with ONLY a compact JSON array like '
                 '[{"i":0,"stance":"supports"}]. stance is exactly one of: supports, refutes, '
                 "neutral. Include every source index."
             ),
