@@ -102,18 +102,69 @@ def _atomic(usd: float) -> str:
     return str(int(round(usd * 10 ** _ASSET_DECIMALS)))
 
 
+# Bazaar cataloging metadata, embedded in the 402 per the CDP discovery layer's
+# observed convention ("extensions.bazaar on the 402"): route + example I/O +
+# input schema. This is what makes the endpoint indexable/searchable by agents
+# once a settle has flowed through a Bazaar-aware facilitator.
+_BAZAAR_EXTENSIONS = {
+    "/check": {
+        "bazaar": {
+            "routeTemplate": "/check",
+            "info": {
+                "input": {
+                    "type": "http", "method": "POST", "bodyType": "json",
+                    "body": {
+                        "text": "The Eiffel Tower was completed in 1889. It is "
+                                "330 metres tall.",
+                        "max_claims": 8,
+                    },
+                },
+                "output": {
+                    "type": "json",
+                    "example": {
+                        "checked": 2,
+                        "backend": "wikipedia+gdelt",
+                        "classifier": "free-llm-router",
+                        "report": [{
+                            "claim": "The Eiffel Tower was completed in 1889.",
+                            "verdict": "supported",
+                            "confidence": 0.83,
+                            "rationale": "sources support and none refute",
+                        }],
+                    },
+                },
+            },
+            "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "minLength": 1,
+                             "description": "Document whose factual claims to verify"},
+                    "max_claims": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+                "required": ["text"],
+            },
+        }
+    }
+}
+
+
 def _requirements(path: str, resource: str, network: str) -> dict:
     """PaymentRequirements for one call ("exact" scheme), for one network id."""
     usd = price_usd(path)
     if usd is None:
         raise ValueError(f"endpoint {path!r} has no x402 price")
-    return {
+    reqs = {
         "scheme": "exact",
         "network": network,
         "maxAmountRequired": _atomic(usd),
         "resource": resource,
-        "description": f"Groundcheck {path}: verify every factual claim in a "
-                       f"document against live sources; per-claim verdicts + citations",
+        "description": "Fact-check for AI agents: verify every factual claim in "
+                       "a document against live web sources (Wikipedia + world "
+                       "news). Returns per-claim verdict (supported/refuted/"
+                       "unverified), confidence, and rationale. Refuses to guess "
+                       "on conflicting evidence — built for pre-answer grounding "
+                       "and hallucination detection.",
         "mimeType": "application/json",
         "payTo": _env("GROUNDCHECK_X402_PAY_TO"),
         "maxTimeoutSeconds": 60,
@@ -123,6 +174,9 @@ def _requirements(path: str, resource: str, network: str) -> dict:
             "version": _env("GROUNDCHECK_X402_ASSET_VERSION", "2"),
         },
     }
+    if path in _BAZAAR_EXTENSIONS:
+        reqs["extensions"] = _BAZAAR_EXTENSIONS[path]
+    return reqs
 
 
 def accepts(path: str, resource: str) -> list[dict]:

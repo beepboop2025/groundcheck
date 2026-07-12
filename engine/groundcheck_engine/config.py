@@ -5,6 +5,11 @@ import os
 SEARCH_BACKEND = os.getenv("GROUNDCHECK_SEARCH_BACKEND")  # "stub" | None
 SEARCH_URL = os.getenv("GROUNDCHECK_SEARCH_URL")          # custom JSON search endpoint
 SEARCH_KEY = os.getenv("GROUNDCHECK_SEARCH_KEY")          # optional bearer token
+NEWS_BACKEND = os.getenv("GROUNDCHECK_NEWS", "1") not in ("0", "off", "false")  # GDELT fan-out
+
+# Verdict cache: repeat claims are served from memory (saves LLM quota, speeds
+# up paid batch calls). Seconds; 0 disables. Best-effort per warm instance.
+CACHE_TTL_S = int(os.getenv("GROUNDCHECK_CACHE_TTL_S", "21600"))
 
 # Where the canonical free-llm-router Python twin lives (added to sys.path if not installed).
 ROUTER_PATH = os.getenv("GROUNDCHECK_ROUTER_PATH", "/Users/mrinal/free-llm-router/python")

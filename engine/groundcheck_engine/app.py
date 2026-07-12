@@ -7,12 +7,13 @@ Endpoints:
   POST /verify      retrieve -> classify stance -> verdict for one claim
   POST /check       extract claims from text and verify each
 """
+import asyncio
 import re
 import time
-from collections import defaultdict, deque
-from typing import Deque, Dict, List
+from collections import Counter, OrderedDict, defaultdict, deque
+from typing import Deque, Dict, List, Tuple
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -23,10 +24,18 @@ from .retrieval import Retriever
 from .stance import classify_stances
 from .verdict import compute_verdict
 
-app = FastAPI(title="Groundcheck Engine", version="0.2.0")
+app = FastAPI(title="Groundcheck Engine", version="0.3.0")
 retriever = Retriever()
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
+_FIRST_PERSON = re.compile(r"^(i|we|you|my|our|your|let's|let us)\b", re.I)
+# A checkable claim needs at least one factual anchor: a number, a copula/verb
+# of fact, or a multi-word proper noun. Questions and opinions are skipped.
+_FACTUAL_SIGNAL = re.compile(
+    r"\d|[A-Z][a-z]+ [A-Z][a-z]+|\b(is|are|was|were|has|have|had|will|did|does|"
+    r"located|founded|born|died|costs?|measures?|won|launched|released|completed|"
+    r"discovered|invented|announced)\b"
+)
 
 # Best-effort per-IP rate limit on the public demo, to protect free LLM quota.
 # (Serverless instances are ephemeral, so this caps bursts per warm instance.)
@@ -135,8 +144,67 @@ class CheckRequest(BaseModel):
 
 
 def _extract_claims(text: str, max_claims: int) -> List[str]:
-    parts = (p.strip() for p in _SENTENCE.split(text))
-    return [p for p in parts if len(p) > 20][:max_claims]
+    out: List[str] = []
+    seen = set()
+    for p in (p.strip() for p in _SENTENCE.split(text)):
+        if len(p) <= 20 or p.endswith("?"):
+            continue
+        if _FIRST_PERSON.match(p) or not _FACTUAL_SIGNAL.search(p):
+            continue
+        key = re.sub(r"\W+", " ", p.lower()).strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+        if len(out) >= max_claims:
+            break
+    return out
+
+
+# ---- verdict cache: repeat claims are answered from memory --------------------
+_verdict_cache: "OrderedDict[str, Tuple[float, VerifyResult]]" = OrderedDict()
+_CACHE_MAX = 2048
+
+
+def _cache_get(key: str) -> VerifyResult | None:
+    if config.CACHE_TTL_S <= 0:
+        return None
+    rec = _verdict_cache.get(key)
+    if rec is None:
+        return None
+    expiry, value = rec
+    if time.time() > expiry:
+        _verdict_cache.pop(key, None)
+        return None
+    _verdict_cache.move_to_end(key)
+    return value
+
+
+def _cache_put(key: str, value: VerifyResult) -> None:
+    if config.CACHE_TTL_S <= 0:
+        return
+    _verdict_cache[key] = (time.time() + config.CACHE_TTL_S, value)
+    _verdict_cache.move_to_end(key)
+    while len(_verdict_cache) > _CACHE_MAX:
+        _verdict_cache.popitem(last=False)
+
+
+async def _verify_claim(claim: str, max_sources: int) -> Tuple[VerifyResult, bool]:
+    """Shared retrieve → classify → verdict path. Returns (result, was_cached)."""
+    key = f"{max_sources}|{' '.join(claim.lower().split())}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached, True
+    sources = await retriever.search(claim, max_sources)
+    classifier = await classify_stances(claim, sources)
+    v = compute_verdict(claim, sources)
+    result = VerifyResult(
+        claim=claim, backend=retriever.backend, classifier=classifier, sources=sources, **v
+    )
+    # A router outage is transient — never freeze it into the cache.
+    if classifier != "error":
+        _cache_put(key, result)
+    return result, False
 
 
 @app.get("/health")
@@ -161,25 +229,31 @@ async def search(q: str, n: int = 5) -> dict:
 
 
 @app.post("/verify", response_model=VerifyResult)
-async def verify(req: VerifyRequest) -> VerifyResult:
-    sources = await retriever.search(req.claim, req.max_sources)
-    classifier = await classify_stances(req.claim, sources)
-    v = compute_verdict(req.claim, sources)
-    return VerifyResult(
-        claim=req.claim, backend=retriever.backend, classifier=classifier, sources=sources, **v
-    )
+async def verify(req: VerifyRequest, response: Response) -> VerifyResult:
+    result, cached = await _verify_claim(req.claim, req.max_sources)
+    response.headers["X-Groundcheck-Cache"] = "hit" if cached else "miss"
+    return result
 
 
 @app.post("/check", response_model=CheckResult)
-async def check(req: CheckRequest) -> CheckResult:
+async def check(req: CheckRequest, response: Response) -> CheckResult:
     claims = _extract_claims(req.text, req.max_claims)
-    report: List[ClaimReport] = []
-    classifier = "none"
-    for claim in claims:
-        sources = await retriever.search(claim, 4)
-        classifier = await classify_stances(claim, sources)
-        v = compute_verdict(claim, sources)
-        report.append(ClaimReport(claim=claim, **v))
+    sem = asyncio.Semaphore(4)  # be polite to Wikipedia/GDELT and the LLM tier
+
+    async def one(claim: str) -> Tuple[VerifyResult, bool]:
+        async with sem:
+            return await _verify_claim(claim, 4)
+
+    results = await asyncio.gather(*(one(c) for c in claims))
+    report = [
+        ClaimReport(claim=r.claim, verdict=r.verdict, confidence=r.confidence,
+                    rationale=r.rationale)
+        for r, _ in results
+    ]
+    hits = sum(1 for _, cached in results if cached)
+    response.headers["X-Groundcheck-Cache-Hits"] = str(hits)
+    tally = Counter(r.classifier for r, _ in results if r.classifier != "none")
+    classifier = tally.most_common(1)[0][0] if tally else "none"
     return CheckResult(
         checked=len(report), backend=retriever.backend, classifier=classifier, report=report
     )
