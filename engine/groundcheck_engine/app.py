@@ -18,9 +18,10 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import config, x402
+from . import config, instruments, x402
 from .landing import LANDING_HTML
-from .models import CheckResult, ClaimReport, Source, VerifyResult
+from .models import (CheckResult, ClaimInstrument, ClaimReport, ResolveResult,
+                     Source, VerifyResult)
 from .retrieval import Retriever
 from .stance import classify_stances
 from .verdict import compute_verdict
@@ -65,7 +66,9 @@ def _custom_openapi() -> dict:
         "limited). POST /check with {text} to extract and verify every claim "
         "in a document (x402 paid, small free daily quota). Both return "
         "verdicts (supported/refuted/unverified), confidence scores, and "
-        "cited sources."
+        "cited sources. POST /resolve with {query} to map a ticker/ISIN/"
+        "CUSIP/FIGI/name to canonical instrument identity with provenance "
+        "(x402 paid, same free quota)."
     )
     schemes = schema.setdefault("components", {}).setdefault("securitySchemes", {})
     schemes["x402"] = {
@@ -79,17 +82,16 @@ def _custom_openapi() -> dict:
         for op in item.values():
             if not isinstance(op, dict):
                 continue
-            if route_path == "/check":
+            price = x402.price_usd(route_path)
+            if price is not None:
                 op["security"] = [{"x402": []}]
                 op.setdefault("responses", {})["402"] = {
                     "description": "Payment Required"}
-                price = x402.price_usd("/check")
-                if price is not None:
-                    op["x-payment-info"] = {
-                        "price": {"mode": "fixed", "currency": "USD",
-                                  "amount": f"{price:.6f}"},
-                        "protocols": [{"x402": {}}],
-                    }
+                op["x-payment-info"] = {
+                    "price": {"mode": "fixed", "currency": "USD",
+                              "amount": f"{price:.6f}"},
+                    "protocols": [{"x402": {}}],
+                }
             else:
                 op["security"] = []
     app.openapi_schema = schema
@@ -233,6 +235,14 @@ class CheckRequest(BaseModel):
     max_claims: int = Field(8, ge=1, le=20)
 
 
+class ResolveRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=200)
+    id_type: str | None = Field(
+        None, description="TICKER | ID_ISIN | ID_CUSIP | ID_SEDOL | ID_BB_GLOBAL; "
+                          "auto-detected from the value's shape when omitted")
+    max_results: int = Field(5, ge=1, le=10)
+
+
 def _extract_claims(text: str, max_claims: int) -> List[str]:
     out: List[str] = []
     seen = set()
@@ -279,22 +289,56 @@ def _cache_put(key: str, value: VerifyResult) -> None:
         _verdict_cache.popitem(last=False)
 
 
+async def _resolve_claim_instruments(claim: str) -> List[ClaimInstrument]:
+    """Entity-resolve EXPLICIT security references ($AAPL, ISINs, FIGIs) named
+    by a claim, so 'which instrument is this about' is answered canonically
+    before the claim is judged. Conservative on purpose: no reference, no call."""
+    if not config.VERIFY_RESOLVES_INSTRUMENTS:
+        return []
+    refs = instruments.find_identifiers(claim)
+    if not refs:
+        return []
+    out: List[ClaimInstrument] = []
+    for id_type, value in refs:
+        r = await instruments.resolve_instrument(value, id_type, max_results=1)
+        out.append(ClaimInstrument(
+            reference=value, id_type=id_type, resolved=r.matched,
+            instrument=r.instruments[0] if r.instruments else None))
+    return out
+
+
 async def _verify_claim(claim: str, max_sources: int) -> Tuple[VerifyResult, bool]:
     """Shared retrieve → classify → verdict path. Returns (result, was_cached)."""
     key = f"{max_sources}|{' '.join(claim.lower().split())}"
     cached = _cache_get(key)
     if cached is not None:
         return cached, True
-    sources = await retriever.search(claim, max_sources)
-    classifier = await classify_stances(claim, sources)
+    resolved, (sources, classifier) = await asyncio.gather(
+        _resolve_claim_instruments(claim),
+        _search_and_classify(claim, max_sources),
+    )
     v = compute_verdict(claim, sources)
+    rationale = v.pop("rationale")
+    unresolved = [ci.reference for ci in resolved if not ci.resolved]
+    if unresolved:
+        rationale += (
+            " · instrument check: "
+            + ", ".join(f"{r!r} does not resolve in open symbology (OpenFIGI)"
+                        for r in unresolved))
     result = VerifyResult(
-        claim=claim, backend=retriever.backend, classifier=classifier, sources=sources, **v
+        claim=claim, backend=retriever.backend, classifier=classifier,
+        sources=sources, rationale=rationale, instruments=resolved, **v
     )
     # A router outage is transient — never freeze it into the cache.
     if classifier != "error":
         _cache_put(key, result)
     return result, False
+
+
+async def _search_and_classify(claim: str, max_sources: int):
+    sources = await retriever.search(claim, max_sources)
+    classifier = await classify_stances(claim, sources)
+    return sources, classifier
 
 
 @app.get("/health")
@@ -323,6 +367,13 @@ async def verify(req: VerifyRequest, response: Response) -> VerifyResult:
     result, cached = await _verify_claim(req.claim, req.max_sources)
     response.headers["X-Groundcheck-Cache"] = "hit" if cached else "miss"
     return result
+
+
+@app.post("/resolve", response_model=ResolveResult)
+async def resolve(req: ResolveRequest) -> ResolveResult:
+    """Attested instrument-identity enrichment: canonical FIGI records (with
+    provenance) for a ticker / ISIN / CUSIP / SEDOL / FIGI / name."""
+    return await instruments.resolve_instrument(req.query, req.id_type, req.max_results)
 
 
 @app.post("/check", response_model=CheckResult)

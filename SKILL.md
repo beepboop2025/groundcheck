@@ -11,6 +11,7 @@ Use the `groundcheck` MCP server to fact-check before you commit to an answer.
 - You are about to assert a date, number, name, or claim you are not fully certain of → `verify_claim`.
 - You generated a draft (README, report, answer) that makes factual claims → `check_citations` on the draft.
 - The user wants proof their content was checked → `attribution_badge`.
+- Text names a security ($AAPL, an ISIN, "Reliance Industries bond") and you need to know exactly which instrument it is → `resolve_instrument`.
 
 ## How to use it
 1. Phrase the claim as one complete, atomic sentence.

@@ -197,10 +197,12 @@ def test_manifest_lists_paid_resources(client, monkeypatch):
     m = client.get("/.well-known/x402").json()
     assert m["x402Versions"] == [1, 2]
     assert m["payTo"].endswith("dEaD")
-    (res,) = m["resources"]
-    assert res["path"] == "/check"
-    assert res["priceUSD"] == 0.02
-    assert {a["network"] for a in res["accepts"]} == {"eip155:8453"}
+    by_path = {r["path"]: r for r in m["resources"]}
+    assert set(by_path) == {"/check", "/resolve"}
+    assert by_path["/check"]["priceUSD"] == 0.02
+    assert by_path["/resolve"]["priceUSD"] == 0.005
+    for res in by_path.values():
+        assert {a["network"] for a in res["accepts"]} == {"eip155:8453"}
     assert "/verify" in m["alwaysFree"]
 
 

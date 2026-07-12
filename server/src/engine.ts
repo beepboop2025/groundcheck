@@ -1,6 +1,6 @@
 // HTTP client to the Python evidence engine. The MCP server holds no logic of its own;
 // retrieval, stance, and the verdict all live behind these calls.
-import type { CheckResult, VerifyResult } from "./types.js";
+import type { CheckResult, ResolveResult, VerifyResult } from "./types.js";
 
 export const ENGINE_URL = process.env.GROUNDCHECK_ENGINE_URL ?? "http://127.0.0.1:8723";
 
@@ -37,6 +37,18 @@ export function verifyClaim(claim: string, maxSources = 5): Promise<VerifyResult
 
 export function checkCitations(text: string, maxClaims = 8): Promise<CheckResult> {
   return postJson<CheckResult>("/check", { text, max_claims: maxClaims });
+}
+
+export function resolveInstrument(
+  query: string,
+  idType?: string,
+  maxResults = 5,
+): Promise<ResolveResult> {
+  return postJson<ResolveResult>("/resolve", {
+    query,
+    id_type: idType ?? null,
+    max_results: maxResults,
+  });
 }
 
 export async function engineReachable(): Promise<boolean> {

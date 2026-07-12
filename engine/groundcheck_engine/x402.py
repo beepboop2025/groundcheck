@@ -145,7 +145,55 @@ _BAZAAR_EXTENSIONS = {
                 "required": ["text"],
             },
         }
-    }
+    },
+    "/resolve": {
+        "bazaar": {
+            "routeTemplate": "/resolve",
+            "info": {
+                "input": {
+                    "type": "http", "method": "POST", "bodyType": "json",
+                    "body": {"query": "AAPL", "max_results": 3},
+                },
+                "output": {
+                    "type": "json",
+                    "example": {
+                        "query": "AAPL",
+                        "id_type": "TICKER",
+                        "matched": True,
+                        "instruments": [{
+                            "figi": "BBG000B9XRY4",
+                            "name": "APPLE INC",
+                            "ticker": "AAPL",
+                            "exch_code": "US",
+                            "security_type": "Common Stock",
+                            "market_sector": "Equity",
+                        }],
+                        "provenance": {
+                            "source": "OpenFIGI (Bloomberg open symbology)",
+                            "url": "https://api.openfigi.com/v3",
+                            "retrieved_at": "2026-07-13T00:00:00+00:00",
+                        },
+                    },
+                },
+            },
+            "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "minLength": 1,
+                              "description": "Ticker, ISIN, CUSIP, SEDOL, FIGI, "
+                                             "or instrument name to resolve"},
+                    "id_type": {"type": "string",
+                                "enum": ["TICKER", "ID_ISIN", "ID_CUSIP",
+                                         "ID_SEDOL", "ID_BB_GLOBAL"],
+                                "description": "Optional; auto-detected from the "
+                                               "value's shape when omitted"},
+                    "max_results": {"type": "integer", "minimum": 1, "maximum": 10},
+                },
+                "required": ["query"],
+            },
+        }
+    },
 }
 
 
@@ -156,15 +204,26 @@ def _requirements(path: str, resource: str, network: str) -> dict:
         raise ValueError(f"endpoint {path!r} has no x402 price")
     # CDP rejects verify/settle when description > 500 chars; keep it tight and
     # hard-guard the length so a future edit can't silently break mainnet.
-    description = (
-        "Claim grounding and citation attestation for AI agents: verified "
-        "enrichment that adds a veracity field to text. Each factual claim is "
-        "grounded against live web sources (Wikipedia + world news) and returned "
-        "with a machine-verified verdict (supported/refuted/unverified), a "
-        "confidence score, and cited sources. Refuses to guess on conflicting "
-        "evidence. Built for research agents that must cite, citation-locked "
-        "content, and compliance checks."
-    )[:500]
+    if path == "/resolve":
+        description = (
+            "Attested instrument-identity enrichment for AI agents: map a "
+            "ticker, ISIN, CUSIP, SEDOL, FIGI, or instrument name to canonical "
+            "FIGI records (name, security type, market sector, exchange) via "
+            "Bloomberg open symbology, with provenance (source, retrieval "
+            "time) attached to every answer. Built for agents that must know "
+            "WHICH security a claim, order, or document is about before acting "
+            "on it."
+        )[:500]
+    else:
+        description = (
+            "Claim grounding and citation attestation for AI agents: verified "
+            "enrichment that adds a veracity field to text. Each factual claim is "
+            "grounded against live web sources (Wikipedia + world news) and returned "
+            "with a machine-verified verdict (supported/refuted/unverified), a "
+            "confidence score, and cited sources. Refuses to guess on conflicting "
+            "evidence. Built for research agents that must cite, citation-locked "
+            "content, and compliance checks."
+        )[:500]
     reqs = {
         "scheme": "exact",
         "network": network,

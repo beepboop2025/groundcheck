@@ -11,6 +11,39 @@ export interface Source {
   stub?: boolean;
 }
 
+export interface Instrument {
+  figi: string;
+  name: string | null;
+  ticker: string | null;
+  exch_code: string | null;
+  security_type: string | null;
+  market_sector: string | null;
+  composite_figi: string | null;
+  share_class_figi: string | null;
+  description: string | null;
+}
+
+export interface ClaimInstrument {
+  reference: string;
+  id_type: string;
+  resolved: boolean;
+  instrument: Instrument | null;
+}
+
+export interface ResolveResult {
+  query: string;
+  id_type: string | null;
+  matched: boolean;
+  instruments: Instrument[];
+  provenance: {
+    source: string;
+    url: string;
+    retrieved_at: string;
+    authenticated: boolean;
+  };
+  note: string | null;
+}
+
 export interface VerifyResult {
   claim: string;
   verdict: Verdict;
@@ -19,6 +52,7 @@ export interface VerifyResult {
   backend: string;
   classifier: string;
   sources: Source[];
+  instruments?: ClaimInstrument[];
 }
 
 export interface ClaimReport {

@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { ENGINE_URL, checkCitations, verifyClaim } from "./engine.js";
+import { ENGINE_URL, checkCitations, resolveInstrument, verifyClaim } from "./engine.js";
 import { ensureEngine } from "./spawn.js";
 import { attributionBadge, attributionFooter } from "./attribution.js";
 import type { VerifyResult } from "./types.js";
@@ -58,6 +58,33 @@ server.tool(
       return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }] };
     } catch {
       const payload = { checked: 0, backend: "offline", report: [], error: `Engine unreachable at ${ENGINE_URL}` };
+      return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
+    }
+  }
+);
+
+server.tool(
+  "resolve_instrument",
+  "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or instrument name to canonical FIGI records via Bloomberg open symbology, with provenance attached. Call this BEFORE acting on a claim, order, or document that names a security, so you know exactly WHICH instrument it is about.",
+  {
+    query: z.string().min(1).max(200).describe("Ticker, ISIN, CUSIP, SEDOL, FIGI, or instrument name."),
+    idType: z
+      .enum(["TICKER", "ID_ISIN", "ID_CUSIP", "ID_SEDOL", "ID_BB_GLOBAL"])
+      .optional()
+      .describe("Identifier type; auto-detected from the value's shape when omitted."),
+    maxResults: z.number().int().min(1).max(10).default(5).optional(),
+  },
+  async ({ query, idType, maxResults = 5 }) => {
+    try {
+      const result = await resolveInstrument(query, idType, maxResults);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      const payload = {
+        query,
+        matched: false,
+        instruments: [],
+        error: err instanceof Error ? err.message : `Engine unreachable at ${ENGINE_URL}`,
+      };
       return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
     }
   }

@@ -41,6 +41,7 @@ verify_claim ─▶ TS MCP server ─HTTP▶ Python engine
 | `verify_claim(claim, maxSources?)` | About to assert a fact you're unsure of | `{ verdict, confidence, rationale, sources }` |
 | `check_citations(text, maxClaims?)` | Before publishing an AI-generated draft | per-claim verdict report |
 | `attribution_badge()` | Want to mark content as checked | a Markdown badge |
+| `resolve_instrument(query, idType?, maxResults?)` | Text names a security and you need to know exactly which one | canonical FIGI records + provenance (Bloomberg open symbology) |
 
 `verdict` is one of `supported` · `refuted` · `unverified`.
 
@@ -109,7 +110,7 @@ product; here it's deliberately fenced in by retrieved evidence.
 A hosted engine can charge AI agents per `/check` call in USDC over the
 [x402 protocol](https://x402.org) — HTTP 402 + signed transfer authorization,
 no accounts or API keys. Dormant unless `GROUNDCHECK_X402_PAY_TO` is set;
-`/verify` stays free forever, `/check` gets a free daily quota per IP first.
+`/verify` stays free forever, `/check` and `/resolve` get a free daily quota per IP first.
 Both protocol generations (v1 and v2) are accepted, and agents can read the
 offer at `GET /.well-known/x402`. Full operator guide: [docs/x402.md](docs/x402.md).
 
