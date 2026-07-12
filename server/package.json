@@ -1,13 +1,21 @@
 {
   "name": "groundcheck-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The grounding check agents run before they commit to an answer: an MCP server that verifies a factual claim against live sources and returns a verdict, confidence, and citations.",
   "mcpName": "io.github.beepboop2025/groundcheck",
-  "repository": { "type": "git", "url": "git+https://github.com/beepboop2025/groundcheck.git", "directory": "server" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/beepboop2025/groundcheck.git",
+    "directory": "server"
+  },
   "homepage": "https://groundcheck.seiche.info",
   "type": "module",
-  "bin": { "groundcheck": "dist/server.js" },
-  "files": ["dist"],
+  "bin": {
+    "groundcheck": "dist/server.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/server.ts",
@@ -15,7 +23,15 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["mcp", "model-context-protocol", "fact-check", "grounding", "hallucination", "ai-agents", "claude"],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "fact-check",
+    "grounding",
+    "hallucination",
+    "ai-agents",
+    "claude"
+  ],
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -26,5 +42,7 @@
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }

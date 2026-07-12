@@ -10,7 +10,7 @@ import { ensureEngine } from "./spawn.js";
 import { attributionBadge, attributionFooter } from "./attribution.js";
 import type { VerifyResult } from "./types.js";
 
-const server = new McpServer({ name: "groundcheck", version: "0.2.0" });
+const server = new McpServer({ name: "groundcheck", version: "0.4.0" });
 
 // Honest degradation when the engine isn't running — never a fabricated verdict.
 function engineDown(claim: string): VerifyResult {
