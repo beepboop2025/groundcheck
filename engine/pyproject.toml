@@ -12,6 +12,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# CDP mainnet facilitator auth (per-request JWT). Only needed when
+# GROUNDCHECK_X402_CDP_KEY_ID/SECRET are set; imported lazily otherwise.
+cdp = ["cdp-sdk>=1.0"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

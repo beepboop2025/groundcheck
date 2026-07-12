@@ -154,21 +154,23 @@ def _requirements(path: str, resource: str, network: str) -> dict:
     usd = price_usd(path)
     if usd is None:
         raise ValueError(f"endpoint {path!r} has no x402 price")
+    # CDP rejects verify/settle when description > 500 chars; keep it tight and
+    # hard-guard the length so a future edit can't silently break mainnet.
+    description = (
+        "Claim grounding and citation attestation for AI agents: verified "
+        "enrichment that adds a veracity field to text. Each factual claim is "
+        "grounded against live web sources (Wikipedia + world news) and returned "
+        "with a machine-verified verdict (supported/refuted/unverified), a "
+        "confidence score, and cited sources. Refuses to guess on conflicting "
+        "evidence. Built for research agents that must cite, citation-locked "
+        "content, and compliance checks."
+    )[:500]
     reqs = {
         "scheme": "exact",
         "network": network,
         "maxAmountRequired": _atomic(usd),
         "resource": resource,
-        "description": "Claim grounding & citation attestation for AI agents: "
-                       "verified enrichment that adds a veracity field to any "
-                       "text. Every factual claim is grounded against live web "
-                       "sources (Wikipedia + world news) and returned with a "
-                       "machine-verified verdict (supported/refuted/unverified), "
-                       "confidence score, and cited sources. Refuses to guess on "
-                       "conflicting evidence. Built for research agents that must "
-                       "cite, citation-locked content, and compliance checks — "
-                       "identity attestation verifies who an agent is; this "
-                       "verifies what it says.",
+        "description": description,
         "mimeType": "application/json",
         "payTo": _env("GROUNDCHECK_X402_PAY_TO"),
         "maxTimeoutSeconds": 60,
@@ -231,13 +233,62 @@ def select_requirements(payment: dict, path: str, resource: str) -> dict:
     return offers[0]
 
 
+_CDP_FACILITATOR = "https://api.cdp.coinbase.com/platform/v2/x402"
+
+
+def cdp_enabled() -> bool:
+    """CDP mainnet facilitator: on when both API-key halves are present."""
+    return bool(_env("GROUNDCHECK_X402_CDP_KEY_ID")
+                and _env("GROUNDCHECK_X402_CDP_KEY_SECRET"))
+
+
+def _facilitator_url() -> str:
+    """Explicit override wins; else CDP when keyed; else the testnet default."""
+    explicit = _env("GROUNDCHECK_X402_FACILITATOR")
+    if explicit:
+        return explicit
+    if cdp_enabled():
+        return _CDP_FACILITATOR
+    return "https://x402.org/facilitator"
+
+
+def _cdp_jwt(method: str, host: str, req_path: str) -> str:
+    """A fresh CDP Bearer JWT bound to this exact request (method+host+path).
+
+    Isolated + lazily imported so cdp-sdk is only needed when CDP auth is on;
+    tests patch this wrapper rather than the SDK. Ed25519 and EC keys both work.
+    """
+    from cdp.auth.utils.jwt import JwtOptions, generate_jwt  # lazy: CDP-only dep
+
+    return generate_jwt(JwtOptions(
+        api_key_id=_env("GROUNDCHECK_X402_CDP_KEY_ID"),
+        api_key_secret=_env("GROUNDCHECK_X402_CDP_KEY_SECRET"),
+        request_method=method,
+        request_host=host,
+        request_path=req_path,
+        expires_in=120,
+    ))
+
+
+def _facilitator_auth(method: str, full_url: str) -> dict:
+    """Authorization header for one facilitator call.
+
+    CDP needs a per-request signed JWT (short-lived, path-bound); other
+    facilitators take an optional static header, or none (testnet)."""
+    if cdp_enabled():
+        from urllib.parse import urlparse
+
+        u = urlparse(full_url)
+        return {"Authorization": f"Bearer {_cdp_jwt(method, u.hostname or '', u.path)}"}
+    static = _env("GROUNDCHECK_X402_FACILITATOR_AUTH")
+    return {"Authorization": static} if static else {}
+
+
 def _facilitator_post(path: str, body: dict) -> dict:
-    url = _env("GROUNDCHECK_X402_FACILITATOR", "https://x402.org/facilitator").rstrip("/")
-    headers = {}
-    auth = _env("GROUNDCHECK_X402_FACILITATOR_AUTH")
-    if auth:
-        headers["Authorization"] = auth
-    r = httpx.post(f"{url}{path}", json=body, headers=headers, timeout=_TIMEOUT_S)
+    url = _facilitator_url().rstrip("/")
+    full = f"{url}{path}"
+    headers = _facilitator_auth("POST", full)
+    r = httpx.post(full, json=body, headers=headers, timeout=_TIMEOUT_S)
     r.raise_for_status()
     out = r.json()
     if not isinstance(out, dict):
