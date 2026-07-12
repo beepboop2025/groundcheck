@@ -8,6 +8,9 @@
 - To signal that content was checked: call `attribution_badge`.
 - Before acting on a claim, order, or document that names a security: call `resolve_instrument` to know exactly WHICH instrument it is about (ticker/ISIN/CUSIP/SEDOL/FIGI/name -> canonical FIGI records with provenance).
 
+## Remote MCP (no install)
+- Add the hosted engine as a remote MCP server by URL: https://groundcheck.seiche.info/mcp — speaks streamable-HTTP JSON-RPC (initialize, tools/list, tools/call). Works in Claude/ChatGPT/Cursor connectors and MCP gateways (Smithery, Glama). verify_claim is free; check_citations and resolve_instrument are x402-paid with the same free daily quota as the REST paths.
+
 ## Install
 - Engine (Python, FastAPI): `make install && export GROQ_API_KEY=... && make engine` (runs on :8723)
 - MCP server (TypeScript): `claude mcp add groundcheck -- npx -y groundcheck-mcp`

@@ -6,19 +6,20 @@ Endpoints:
   GET  /search?q=&n=  the documented GROUNDCHECK_SEARCH_URL contract ({results:[...]})
   POST /verify      retrieve -> classify stance -> verdict for one claim
   POST /check       extract claims from text and verify each
+  GET/POST /mcp     streamable-HTTP MCP transport (the 3 tools, by URL)
 """
 import asyncio
 import re
 import time
 from collections import Counter, OrderedDict, defaultdict, deque
 from importlib import resources
-from typing import Deque, Dict, List, Tuple
+from typing import Any, Deque, Dict, List, Tuple
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import config, instruments, x402
+from . import config, instruments, mcp_http, x402
 from .landing import LANDING_HTML
 from .models import (CheckResult, ClaimInstrument, ClaimReport, ResolveResult,
                      Source, VerifyResult)
@@ -28,7 +29,7 @@ from .verdict import compute_verdict
 
 app = FastAPI(
     title="Groundcheck Engine",
-    version="0.3.0",
+    version="0.5.0",
     contact={
         "name": "Groundcheck",
         "url": "https://github.com/beepboop2025/groundcheck",
@@ -388,9 +389,110 @@ async def resolve(req: ResolveRequest) -> ResolveResult:
     return await instruments.resolve_instrument(req.query, req.id_type, req.max_results)
 
 
-@app.post("/check", response_model=CheckResult)
-async def check(req: CheckRequest, response: Response) -> CheckResult:
-    claims = _extract_claims(req.text, req.max_claims)
+# ---- MCP over HTTP -----------------------------------------------------------
+# The npm package is a stdio server an agent installs; this is the endpoint an
+# agent adds BY URL (Claude/ChatGPT/Cursor connectors, Smithery, Glama) with no
+# install at all. Tools call the same functions the REST endpoints do, and the
+# paid ones answer 402 with the same x402 offer.
+
+async def _mcp_verify_claim(claim: str, max_sources: int = 5) -> dict:
+    result, _ = await _verify_claim(claim, max(1, min(int(max_sources), 10)))
+    return result.model_dump()
+
+
+async def _mcp_check_citations(text: str, max_claims: int = 8) -> dict:
+    result, _hits = await _check_text(text, max(1, min(int(max_claims), 20)))
+    return result.model_dump()
+
+
+async def _mcp_resolve_instrument(query: str, id_type: str | None = None,
+                                  max_results: int = 5) -> dict:
+    r = await instruments.resolve_instrument(query, id_type,
+                                             max(1, min(int(max_results), 10)))
+    return r.model_dump()
+
+
+_MCP_HANDLERS = {
+    "verify_claim": _mcp_verify_claim,
+    "check_citations": _mcp_check_citations,
+    "resolve_instrument": _mcp_resolve_instrument,
+}
+
+
+@app.get("/mcp", include_in_schema=False)
+async def mcp_get() -> JSONResponse:
+    """Probing clients GET the endpoint before speaking JSON-RPC."""
+    return JSONResponse({
+        "transport": "streamable-http",
+        "protocolVersion": mcp_http.PROTOCOL_VERSION,
+        "server": {"name": mcp_http.SERVER_NAME, "version": mcp_http.SERVER_VERSION},
+        "usage": "POST JSON-RPC 2.0 here (initialize, tools/list, tools/call).",
+        "paid_tools": sorted(mcp_http.TOOL_PRICED_AS),
+    })
+
+
+@app.post("/mcp", include_in_schema=False)
+async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response:
+    if body is None:
+        return JSONResponse(
+            mcp_http._error(None, mcp_http.PARSE_ERROR, "empty or non-JSON body"),
+            status_code=400)
+
+    msgs = body if isinstance(body, list) else [body]
+    if len(msgs) > mcp_http.MAX_BATCH:
+        # one HTTP request costs one rate-limiter hit, so an unbounded batch
+        # would evade both the ceiling and the paywall.
+        return JSONResponse(
+            mcp_http._error(None, mcp_http.INVALID_REQUEST,
+                            f"batch too large (max {mcp_http.MAX_BATCH} messages)"),
+            status_code=413)
+
+    # A paid tool call is settled BEFORE it runs, exactly like the REST paths:
+    # free daily quota first, then a 402 offer, then verify + settle or nothing.
+    single = msgs[0] if len(msgs) == 1 and isinstance(msgs[0], dict) else None
+    path = mcp_http.priced_tool(single) if single is not None else None
+    if x402.enabled() and path is not None:
+        resource = str(request.url)
+        raw = x402.payment_header(request.headers)
+        if raw is None:
+            ip = _client_ip(request)
+            if _free_quota_take(ip) is None:
+                return _pay_402(path, resource,
+                                f"{mcp_http.tool_name(single)} is a paid tool — "
+                                "free daily quota exhausted")
+        else:
+            payment = x402.decode_payment(raw)
+            if payment is None:
+                return _pay_402(path, resource, "payment header malformed")
+            reqs = x402.select_requirements(payment, path, resource)
+            ok, why = x402.verify(payment, reqs)
+            if not ok:
+                return _pay_402(path, resource, why)
+            resp = await mcp_http.dispatch(single, _MCP_HANDLERS)
+            settled, receipt = x402.settle(payment, reqs)
+            if not settled:  # fail-closed: no settle, no result
+                return _pay_402(path, resource,
+                                str(receipt.get("errorReason") or "settlement failed"))
+            return JSONResponse(resp, headers=x402.receipt_headers(receipt))
+
+    responses = []
+    for m in msgs:
+        r = await mcp_http.dispatch(m, _MCP_HANDLERS)
+        if r is None:
+            continue
+        if x402.enabled() and isinstance(m, dict) and m.get("method") == "tools/list":
+            r = mcp_http.annotate_tools_list(r)
+        responses.append(r)
+
+    if not responses:                       # notification-only body
+        return Response(status_code=202)
+    payload = responses if isinstance(body, list) else responses[0]
+    return JSONResponse(payload)
+
+
+async def _check_text(text: str, max_claims: int) -> Tuple[CheckResult, int]:
+    """Extract claims and verify each. Shared by POST /check and the MCP tool."""
+    claims = _extract_claims(text, max_claims)
     sem = asyncio.Semaphore(4)  # be polite to Wikipedia/GDELT and the LLM tier
 
     async def one(claim: str) -> Tuple[VerifyResult, bool]:
@@ -404,9 +506,15 @@ async def check(req: CheckRequest, response: Response) -> CheckResult:
         for r, _ in results
     ]
     hits = sum(1 for _, cached in results if cached)
-    response.headers["X-Groundcheck-Cache-Hits"] = str(hits)
     tally = Counter(r.classifier for r, _ in results if r.classifier != "none")
     classifier = tally.most_common(1)[0][0] if tally else "none"
     return CheckResult(
         checked=len(report), backend=retriever.backend, classifier=classifier, report=report
-    )
+    ), hits
+
+
+@app.post("/check", response_model=CheckResult)
+async def check(req: CheckRequest, response: Response) -> CheckResult:
+    result, hits = await _check_text(req.text, req.max_claims)
+    response.headers["X-Groundcheck-Cache-Hits"] = str(hits)
+    return result

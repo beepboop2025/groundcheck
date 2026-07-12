@@ -45,6 +45,8 @@ verify_claim ─▶ TS MCP server ─HTTP▶ Python engine
 
 `verdict` is one of `supported` · `refuted` · `unverified`.
 
+**Remote MCP (no install):** add `https://groundcheck.seiche.info/mcp` as a remote MCP server (Claude/ChatGPT/Cursor connectors, or a gateway like Smithery/Glama). Speaks streamable-HTTP JSON-RPC; `verify_claim` is free, the paid tools answer HTTP 402 with an x402 offer.
+
 ## Quickstart
 
 The MCP server **auto-starts the Python engine** if one isn't already running, so a single

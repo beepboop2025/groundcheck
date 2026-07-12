@@ -74,6 +74,11 @@ def enabled() -> bool:
     return bool(_env("GROUNDCHECK_X402_PAY_TO"))
 
 
+def pay_to_address() -> str:
+    """The receiving address (public information; safe to advertise)."""
+    return _env("GROUNDCHECK_X402_PAY_TO") or ""
+
+
 def price_usd(path: str | None) -> float | None:
     """Price for an endpoint path, or None if it is not payable."""
     if not path:
