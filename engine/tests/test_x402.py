@@ -80,21 +80,26 @@ def test_free_quota_counts_down_then_402(client, monkeypatch):
     r3 = client.post("/check", json=PAID)
     assert r3.status_code == 402
     body = r3.json()
-    assert body["x402Version"] == 1
+    assert body["x402Version"] == 2
     assert "quota" in body["error"]
 
 
-def test_402_offers_both_protocol_generations(client, monkeypatch):
+def test_402_is_v2_native(client, monkeypatch):
     _enable(monkeypatch, free_per_day=0)
     r = client.post("/check", json=PAID)
     assert r.status_code == 402
-    nets = {a["network"] for a in r.json()["accepts"]}
-    assert nets == {"base", "eip155:8453"}
-    for offer in r.json()["accepts"]:
+    body = r.json()
+    assert body["x402Version"] == 2
+    assert body["resource"]["url"].endswith("/check")     # envelope-level object
+    assert body["resource"]["mimeType"] == "application/json"
+    nets = {a["network"] for a in body["accepts"]}
+    assert nets == {"eip155:8453"}                        # CAIP-2 only, no v1 names
+    for offer in body["accepts"]:
         assert offer["scheme"] == "exact"
         assert offer["payTo"].endswith("dEaD")
-        assert offer["maxAmountRequired"] == "20000"   # $0.02 in USDC atomic units
-    # v2 clients read the header envelope instead
+        assert offer["amount"] == "20000"                 # $0.02 in USDC atomic units
+        assert "resource" not in offer and "description" not in offer
+    # header envelope mirrors the body
     v2 = json.loads(base64.b64decode(r.headers["PAYMENT-REQUIRED"]))
     assert v2["x402Version"] == 2
     assert v2["accepts"][0]["network"] == "eip155:8453"
@@ -195,7 +200,7 @@ def test_manifest_lists_paid_resources(client, monkeypatch):
     (res,) = m["resources"]
     assert res["path"] == "/check"
     assert res["priceUSD"] == 0.02
-    assert {a["network"] for a in res["accepts"]} == {"base", "eip155:8453"}
+    assert {a["network"] for a in res["accepts"]} == {"eip155:8453"}
     assert "/verify" in m["alwaysFree"]
 
 
@@ -239,12 +244,19 @@ def test_openapi_marks_paid_and_free_surfaces():
     assert paths["/verify"]["post"]["security"] == []
 
 
-def test_offers_carry_v2_amount(client, monkeypatch):
+def test_402_parses_with_official_sdk(client, monkeypatch):
+    """The exact failure that blocked real buyers: the official SDK's
+    PaymentRequired model must validate our 402 body verbatim."""
+    from x402.schemas import PaymentRequired
+
     _enable(monkeypatch, free_per_day=0)
     r = client.post("/check", json=PAID)
     assert r.status_code == 402
-    for offer in r.json()["accepts"]:
-        assert offer["amount"] == offer["maxAmountRequired"]
+    parsed = PaymentRequired.model_validate(r.json())
+    assert parsed.x402_version == 2
+    assert parsed.resource and parsed.resource.url.endswith("/check")
+    assert parsed.accepts[0].amount == "20000"
+    assert parsed.accepts[0].network == "eip155:8453"
 
 
 def test_openapi_discovery_contract():

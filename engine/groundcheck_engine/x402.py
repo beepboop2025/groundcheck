@@ -190,24 +190,63 @@ def _requirements(path: str, resource: str, network: str) -> dict:
 
 
 def accepts(path: str, resource: str) -> list[dict]:
-    """Both representations of the same offer: v1 network name + CAIP-2 id."""
-    name, caip2 = _network_pair()
-    out = [_requirements(path, resource, name)]
-    if caip2 and caip2 != name:
-        out.append(_requirements(path, resource, caip2))
-    return out
+    """v2 PaymentRequirements entries (CAIP-2 network, atomic `amount`).
+
+    Built THROUGH the official SDK's pydantic models so the wire shape is
+    spec-true by construction — the hand-rolled v1/v2 mix could not be parsed
+    by standard v2 buyers (the SDK client) or discovery validators (x402scan,
+    CDP Bazaar). v1 names never appear in accepts anymore; v1 buyers are
+    still served on the payment-header side (see select_requirements).
+    """
+    from x402.schemas import PaymentRequirements
+
+    _, caip2 = _network_pair()
+    legacy = _requirements(path, resource, caip2)  # reuse price/asset/extra logic
+    reqs = PaymentRequirements(
+        scheme="exact",
+        network=caip2,
+        asset=legacy["asset"],
+        amount=legacy["amount"],
+        pay_to=legacy["payTo"],
+        max_timeout_seconds=legacy["maxTimeoutSeconds"],
+        extra=legacy["extra"],
+    )
+    return [reqs.model_dump(mode="json", by_alias=True)]
+
+
+def _resource_info(path: str, resource: str) -> dict:
+    """v2 envelope-level resource object (also carries Bazaar service metadata)."""
+    from x402.schemas import ResourceInfo
+
+    legacy = _requirements(path, resource, "eip155:0")
+    return ResourceInfo(
+        url=resource,
+        description=legacy["description"],
+        mime_type="application/json",
+        service_name="Groundcheck",
+        tags=["enrichment", "grounding", "citations", "verified-data",
+              "agent-tools"],
+        icon_url="https://groundcheck.seiche.info/favicon.ico",
+    ).model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 def payment_required(path: str, resource: str, error: str) -> tuple[dict, dict]:
-    """(v1 JSON body, extra response headers) for a 402.
+    """(v2 JSON body, extra response headers) for a 402.
 
-    The body is the x402 v1 shape; the PAYMENT-REQUIRED header carries the
-    v2 envelope so v2-only clients get first-class requirements too.
+    Body and PAYMENT-REQUIRED header carry the same v2 envelope, validated
+    against the SDK's PaymentRequired model so any standard buyer can parse
+    it. resource/description/mimeType live at the envelope level in v2.
     """
-    offers = accepts(path, resource)
-    body = {"x402Version": 1, "error": error, "accepts": offers}
-    v2 = {"x402Version": 2, "error": error, "accepts": offers[::-1]}  # CAIP-2 first
-    headers = {"PAYMENT-REQUIRED": base64.b64encode(json.dumps(v2).encode()).decode()}
+    from x402.schemas import PaymentRequired
+
+    body = PaymentRequired.model_validate({
+        "x402Version": 2,
+        "error": error,
+        "resource": _resource_info(path, resource),
+        "accepts": accepts(path, resource),
+        "extensions": _BAZAAR_EXTENSIONS.get(path),
+    }).model_dump(mode="json", by_alias=True, exclude_none=True)
+    headers = {"PAYMENT-REQUIRED": base64.b64encode(json.dumps(body).encode()).decode()}
     return body, headers
 
 
@@ -228,13 +267,22 @@ def decode_payment(header: str | None) -> dict | None:
 
 
 def select_requirements(payment: dict, path: str, resource: str) -> dict:
-    """The offer matching the network the payer signed for (else the first)."""
-    offers = accepts(path, resource)
-    net = payment.get("network")
-    for offer in offers:
-        if offer["network"] == net:
-            return offer
-    return offers[0]
+    """The requirements to send to the facilitator for this payment.
+
+    v2 payloads (x402Version 2) name their chosen offer in `accepted`; we
+    echo our own matching v2 offer. v1 payloads carry a bare network name and
+    get v1-shaped requirements, which the facilitator's v1 schema expects.
+    """
+    if payment.get("x402Version") == 2:
+        offers = accepts(path, resource)
+        want = (payment.get("accepted") or {}).get("network")
+        for offer in offers:
+            if offer["network"] == want:
+                return offer
+        return offers[0]
+    name, caip2 = _network_pair()
+    net = payment.get("network", name)
+    return _requirements(path, resource, net if net in (name, caip2) else name)
 
 
 _CDP_FACILITATOR = "https://api.cdp.coinbase.com/platform/v2/x402"

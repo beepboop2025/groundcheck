@@ -8,3 +8,6 @@ pytest>=8
 # engine imports it from the sibling checkout via GROUNDCHECK_ROUTER_PATH
 # (default /Users/mrinal/free-llm-router/python). For Docker, vendor it first:
 #   make vendor-router
+
+# Official x402 SDK: source of truth for v2 wire shapes (402 envelope models)
+x402>=2.15,<3
