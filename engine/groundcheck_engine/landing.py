@@ -5,6 +5,7 @@ LANDING_HTML = r"""<!doctype html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="base:app_id" content="6a52dd0ce3b311a8d678de9d" />
 <title>Groundcheck — the grounding check agents run before they commit to an answer</title>
 <meta name="description" content="Groundcheck verifies a factual claim against live sources and returns a verdict, a confidence score, and citations — over MCP, so any AI agent can call it mid-task." />
 <meta property="og:title" content="Groundcheck" />
