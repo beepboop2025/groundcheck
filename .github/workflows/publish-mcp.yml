@@ -1,0 +1,30 @@
+name: publish-mcp
+
+# Publish the MCP registry listing (io.github.beepboop2025/groundcheck).
+# Authenticates with the workflow's own OIDC token — no secrets needed.
+# Run manually (workflow_dispatch) after bumping server.json, or cut a release.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write            # lets mcp-publisher prove the namespace via OIDC
+
+jobs:
+  registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+            | tar xz mcp-publisher && sudo mv mcp-publisher /usr/local/bin/
+      - name: Validate and publish server.json
+        run: |
+          mcp-publisher publish --dry-run
+          mcp-publisher login github-oidc
+          mcp-publisher publish
