@@ -288,7 +288,16 @@ def _facilitator_post(path: str, body: dict) -> dict:
     url = _facilitator_url().rstrip("/")
     full = f"{url}{path}"
     headers = _facilitator_auth("POST", full)
-    r = httpx.post(full, json=body, headers=headers, timeout=_TIMEOUT_S)
+    # If a CDP key is IP-allowlisted to this host's IPv4, egress must use it.
+    # A dual-stack box otherwise reaches CDP over IPv6 and gets a 401. Binding
+    # the local socket to the IPv4 forces an IPv4 connection to the facilitator.
+    local_ip = _env("GROUNDCHECK_X402_FACILITATOR_LOCAL_IP")
+    if local_ip:
+        transport = httpx.HTTPTransport(local_address=local_ip)
+        with httpx.Client(timeout=_TIMEOUT_S, transport=transport) as c:
+            r = c.post(full, json=body, headers=headers)
+    else:
+        r = httpx.post(full, json=body, headers=headers, timeout=_TIMEOUT_S)
     r.raise_for_status()
     out = r.json()
     if not isinstance(out, dict):
