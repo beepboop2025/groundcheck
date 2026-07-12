@@ -1,7 +1,10 @@
 {
-  "name": "groundcheck",
-  "version": "0.2.0",
-  "description": "The grounding check agents run before they commit to an answer — an MCP server that verifies a factual claim against live sources and returns a verdict, confidence, and citations.",
+  "name": "groundcheck-mcp",
+  "version": "0.3.0",
+  "description": "The grounding check agents run before they commit to an answer: an MCP server that verifies a factual claim against live sources and returns a verdict, confidence, and citations.",
+  "mcpName": "io.github.beepboop2025/groundcheck",
+  "repository": { "type": "git", "url": "git+https://github.com/beepboop2025/groundcheck.git", "directory": "server" },
+  "homepage": "https://groundcheck.seiche.info",
   "type": "module",
   "bin": { "groundcheck": "dist/server.js" },
   "files": ["dist"],

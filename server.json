@@ -1,0 +1,28 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.beepboop2025/groundcheck",
+  "description": "Verify a factual claim against live sources before your agent commits to an answer. Returns a verdict, a confidence score, and citations over MCP.",
+  "repository": {
+    "url": "https://github.com/beepboop2025/groundcheck",
+    "source": "github"
+  },
+  "version": "0.3.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "groundcheck-mcp",
+      "version": "0.3.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "GROUNDCHECK_ENGINE_URL",
+          "description": "URL of the Groundcheck evidence engine. Defaults to http://127.0.0.1:8723 for a local engine; set to https://groundcheck.seiche.info to use the hosted engine.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

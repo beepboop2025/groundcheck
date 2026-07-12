@@ -21,7 +21,7 @@ Use the `groundcheck` MCP server to fact-check before you commit to an answer.
 Two parts: a Python engine (does the work) and a TypeScript MCP server (the interface).
 ```
 make install && export GROQ_API_KEY=... && make engine   # 1. start the engine on :8723
-claude mcp add groundcheck -- npx -y groundcheck         # 2. register the MCP server
+claude mcp add groundcheck -- npx -y groundcheck-mcp         # 2. register the MCP server
 ```
 Retrieval defaults to Wikipedia (keyless). With no provider key, the engine still runs but
 every verdict is `unverified` — it will never fake a confident verdict.

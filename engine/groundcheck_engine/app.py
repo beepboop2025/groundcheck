@@ -11,10 +11,11 @@ import asyncio
 import re
 import time
 from collections import Counter, OrderedDict, defaultdict, deque
+from importlib import resources
 from typing import Deque, Dict, List, Tuple
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from . import config, x402
@@ -131,6 +132,11 @@ async def x402_gate(request: Request, call_next):
 @app.get("/", response_class=HTMLResponse)
 async def landing() -> str:
     return LANDING_HTML
+
+
+@app.get("/llms.txt", response_class=PlainTextResponse)
+async def llms_txt() -> str:
+    return resources.files("groundcheck_engine").joinpath("llms.txt").read_text()
 
 
 class VerifyRequest(BaseModel):

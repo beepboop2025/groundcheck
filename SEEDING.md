@@ -51,7 +51,7 @@ Set the repo "About" to the one-liner variant. README already opens with the can
 > check an agent runs before it commits to an answer. It's an MCP server — `verify_claim`
 > takes a claim, checks it against live sources, and returns a verdict + confidence +
 > citations. Drop-in for Claude Code / Cursor:
-> `claude mcp add groundcheck -- npx -y groundcheck`.
+> `claude mcp add groundcheck -- npx -y groundcheck-mcp`.
 > Stub-safe (never fakes a verdict), backend is pluggable. Repo: <link>. Curious how people
 > are handling agent hallucination today — what do you do before trusting a model's "fact"?
 

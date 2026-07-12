@@ -20,7 +20,7 @@ So I built Groundcheck — the grounding check agents run before they commit to 
 **3/**
 One line to install in Claude Code / Cursor / any MCP client:
 
-claude mcp add groundcheck -- npx -y groundcheck
+claude mcp add groundcheck -- npx -y groundcheck-mcp
 
 Now the agent has a verify_claim tool it calls before asserting something it isn't sure of.
 

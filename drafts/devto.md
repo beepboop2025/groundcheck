@@ -30,7 +30,7 @@ It's a [Model Context Protocol](https://modelcontextprotocol.io) server, so any 
 (Claude Code, Cursor, your own) can install it in one line:
 
 ```bash
-claude mcp add groundcheck -- npx -y groundcheck
+claude mcp add groundcheck -- npx -y groundcheck-mcp
 ```
 
 Now the agent has a `verify_claim` tool. Before it asserts something it isn't sure of, it calls:
@@ -100,7 +100,7 @@ or sources with no clear stance all flow toward `unverified`. An unconfigured Gr
 ## Try it
 
 ```bash
-claude mcp add groundcheck -- npx -y groundcheck
+claude mcp add groundcheck -- npx -y groundcheck-mcp
 ```
 
 Repo, the full verdict logic, and an `llms.txt` / `SKILL.md` so your agent knows *when* to reach

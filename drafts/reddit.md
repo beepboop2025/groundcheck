@@ -21,7 +21,7 @@ confidence score, and citations. Any AI agent can call it mid-task.**
 
 The one call:
 
-    claude mcp add groundcheck -- npx -y groundcheck
+    claude mcp add groundcheck -- npx -y groundcheck-mcp
 
 Then the agent calls `verify_claim("X")` before asserting X, and gets back
 `{ verdict: supported | refuted | unverified, confidence, sources }`.

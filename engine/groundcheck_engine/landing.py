@@ -65,7 +65,7 @@ LANDING_HTML = r"""<!doctype html>
   </div>
 
   <div class="links">
-    Install: <code>claude mcp add groundcheck -- npx -y groundcheck</code><br/>
+    Install: <code>claude mcp add groundcheck -- npx -y groundcheck-mcp</code><br/>
     <a href="https://github.com/beepboop2025/groundcheck">GitHub</a> · <a href="/health">/health</a> · <a href="/docs">API docs</a>
   </div>
 </div>

@@ -62,7 +62,7 @@ Already running the engine yourself (`make engine` or `docker compose up -d`)? T
 detects and **reuses** it — and won't touch an engine it didn't start. Set
 `GROUNDCHECK_NO_SPAWN=1` to stop it from ever spawning one.
 
-> Once published to npm, registration becomes `claude mcp add groundcheck -- npx -y groundcheck`.
+> Once published to npm, registration becomes `claude mcp add groundcheck -- npx -y groundcheck-mcp`.
 > Auto-spawn needs a local `engine/` + Python deps; for an npx-only install, run the engine via
 > `docker compose up -d` and the server connects to it over `GROUNDCHECK_ENGINE_URL`.
 
