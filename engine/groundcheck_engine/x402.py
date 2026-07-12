@@ -159,12 +159,16 @@ def _requirements(path: str, resource: str, network: str) -> dict:
         "network": network,
         "maxAmountRequired": _atomic(usd),
         "resource": resource,
-        "description": "Fact-check for AI agents: verify every factual claim in "
-                       "a document against live web sources (Wikipedia + world "
-                       "news). Returns per-claim verdict (supported/refuted/"
-                       "unverified), confidence, and rationale. Refuses to guess "
-                       "on conflicting evidence — built for pre-answer grounding "
-                       "and hallucination detection.",
+        "description": "Claim grounding & citation attestation for AI agents: "
+                       "verified enrichment that adds a veracity field to any "
+                       "text. Every factual claim is grounded against live web "
+                       "sources (Wikipedia + world news) and returned with a "
+                       "machine-verified verdict (supported/refuted/unverified), "
+                       "confidence score, and cited sources. Refuses to guess on "
+                       "conflicting evidence. Built for research agents that must "
+                       "cite, citation-locked content, and compliance checks — "
+                       "identity attestation verifies who an agent is; this "
+                       "verifies what it says.",
         "mimeType": "application/json",
         "payTo": _env("GROUNDCHECK_X402_PAY_TO"),
         "maxTimeoutSeconds": 60,
@@ -288,9 +292,13 @@ def manifest(base_url: str) -> dict:
     return {
         "x402Versions": [1, 2],
         "service": "groundcheck",
-        "description": "Verify factual claims against live sources: verdict, "
-                       "confidence, citations. Free single-claim endpoint; "
-                       "machine-payable batch document checking.",
+        "description": "Claim grounding & citation attestation for AI agents — "
+                       "verified enrichment with machine-verified verdicts, "
+                       "confidence scores, and cited sources. Free single-claim "
+                       "grounding; machine-payable batch document attestation.",
+        "tags": ["enrichment", "grounding", "citations", "attested",
+                 "machine-verified", "verified-data", "research",
+                 "agent-tools", "claim-verification"],
         "payTo": _env("GROUNDCHECK_X402_PAY_TO"),
         "network": {"name": name, "caip2": caip2},
         "asset": _asset(),

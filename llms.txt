@@ -1,6 +1,6 @@
 # Groundcheck
 
-> The grounding check agents run before they commit to an answer. Groundcheck verifies factual claims against live web sources and returns a verdict, a confidence score, and citations — over MCP, so any agent can call it mid-task.
+> Claim grounding and citation attestation for AI agents. Groundcheck is verified enrichment: it grounds factual claims against live web sources (Wikipedia + world news) and returns a machine-verified verdict, a confidence score, and cited sources — over MCP or HTTP, so any agent can call it mid-task. Identity attestation (x401, ERC-8004) verifies who an agent is; Groundcheck verifies what it says.
 
 ## When to use
 - Before asserting a fact you are not certain of (a date, number, name, statistic): call `verify_claim`.
