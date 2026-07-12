@@ -203,3 +203,37 @@ def test_health_reports_x402_state(client, monkeypatch):
     assert client.get("/health").json()["x402"] is False
     _enable(monkeypatch)
     assert client.get("/health").json()["x402"] is True
+
+
+# --- discovery surface (x402scan, Bazaar indexers) --------------------------
+
+def test_get_on_paid_path_answers_402_offer(client, monkeypatch):
+    """Probes GET paid paths; the paywall must answer before method validation."""
+    _enable(monkeypatch, free_per_day=5)
+    r = client.get("/check")
+    assert r.status_code == 402
+    assert r.json()["accepts"], "402 must carry a valid accepts[] offer"
+    # and it must not have burned the free quota
+    assert client.post("/check", json=PAID).status_code == 200
+
+
+def test_get_on_paid_path_still_405_when_x402_off(client):
+    assert client.get("/check").status_code == 405
+
+
+def test_favicon_served():
+    c = TestClient(app_mod.app)
+    r = c.get("/favicon.ico")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/x-icon"
+    assert r.content[:4] == b"\x00\x00\x01\x00"
+
+
+def test_openapi_marks_paid_and_free_surfaces():
+    app_mod.app.openapi_schema = None  # force rebuild
+    schema = app_mod.app.openapi()
+    assert schema["info"]["contact"]["email"]
+    assert "x402" in schema["components"]["securitySchemes"]
+    paths = schema["paths"]
+    assert paths["/check"]["post"]["security"] == [{"x402": []}]
+    assert paths["/verify"]["post"]["security"] == []

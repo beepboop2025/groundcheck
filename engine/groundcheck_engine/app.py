@@ -25,8 +25,42 @@ from .retrieval import Retriever
 from .stance import classify_stances
 from .verdict import compute_verdict
 
-app = FastAPI(title="Groundcheck Engine", version="0.3.0")
+app = FastAPI(
+    title="Groundcheck Engine",
+    version="0.3.0",
+    contact={
+        "name": "Groundcheck",
+        "url": "https://github.com/beepboop2025/groundcheck",
+        "email": "mrinallovesbhature@gmail.com",
+    },
+)
 retriever = Retriever()
+
+
+def _custom_openapi() -> dict:
+    """Mark /check as x402-paid and everything else as free (security: []) so
+    discovery indexes probe only the paid surface."""
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = _base_openapi()
+    schemes = schema.setdefault("components", {}).setdefault("securitySchemes", {})
+    schemes["x402"] = {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-PAYMENT",
+        "description": "x402 payment payload (v1 X-PAYMENT or v2 PAYMENT-SIGNATURE). "
+                       "Unpaid calls receive HTTP 402 with an accepts[] offer.",
+    }
+    for route_path, item in schema.get("paths", {}).items():
+        for op in item.values():
+            if isinstance(op, dict):
+                op["security"] = [{"x402": []}] if route_path == "/check" else []
+    app.openapi_schema = schema
+    return schema
+
+
+_base_openapi = app.openapi
+app.openapi = _custom_openapi
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 _FIRST_PERSON = re.compile(r"^(i|we|you|my|our|your|let's|let us)\b", re.I)
@@ -90,11 +124,17 @@ def _pay_402(path: str, resource: str, error: str) -> JSONResponse:
 @app.middleware("http")
 async def x402_gate(request: Request, call_next):
     path = request.url.path
-    if not (x402.enabled() and request.method == "POST"
-            and x402.price_usd(path) is not None):
+    if not (x402.enabled() and x402.price_usd(path) is not None):
         return await call_next(request)
 
     resource = str(request.url)
+
+    # Paywall answers before method/body validation: discovery probes (x402scan,
+    # Bazaar indexers) hit paid paths with GET and must see the 402 offer, not a
+    # 405 from the router. Never consumes quota; settle only happens on POST.
+    if request.method != "POST":
+        return _pay_402(path, resource, "payment required (call with POST)")
+
     raw = x402.payment_header(request.headers)
 
     if raw is None:  # unpaid: free daily quota, then 402 with the offer
@@ -134,9 +174,16 @@ async def landing() -> str:
     return LANDING_HTML
 
 
-@app.get("/llms.txt", response_class=PlainTextResponse)
+@app.get("/llms.txt", response_class=PlainTextResponse, include_in_schema=False)
 async def llms_txt() -> str:
     return resources.files("groundcheck_engine").joinpath("llms.txt").read_text()
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    data = resources.files("groundcheck_engine").joinpath("favicon.ico").read_bytes()
+    return Response(data, media_type="image/x-icon",
+                    headers={"cache-control": "public, max-age=86400"})
 
 
 class VerifyRequest(BaseModel):
