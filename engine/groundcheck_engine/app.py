@@ -118,11 +118,23 @@ _RL_MAX = 30
 _hits: Dict[str, Deque[float]] = defaultdict(deque)
 
 
+def _client_ip(request: Request) -> str:
+    """Real client behind a reverse proxy (Caddy/Vercel set X-Forwarded-For).
+    Without this, every public caller shares one 127.0.0.1 quota bucket —
+    one visitor's testing exhausts everyone's free tier."""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return request.client.host if request.client else "anon"
+
+
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
     # Paid x402 calls bought their capacity; only the free surface is limited.
     if request.method == "POST" and not getattr(request.state, "x402_paid", False):
-        ip = request.client.host if request.client else "anon"
+        ip = _client_ip(request)
         now = time.time()
         dq = _hits[ip]
         while dq and now - dq[0] > _RL_WINDOW:
@@ -177,7 +189,7 @@ async def x402_gate(request: Request, call_next):
     raw = x402.payment_header(request.headers)
 
     if raw is None:  # unpaid: free daily quota, then 402 with the offer
-        ip = request.client.host if request.client else "anon"
+        ip = _client_ip(request)
         remaining = _free_quota_take(ip)
         if remaining is None:
             return _pay_402(path, resource,
