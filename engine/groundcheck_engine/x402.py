@@ -168,7 +168,11 @@ def _requirements(path: str, resource: str, network: str) -> dict:
     reqs = {
         "scheme": "exact",
         "network": network,
+        # v1 clients read maxAmountRequired; v2 buyers and discovery validators
+        # (x402 SDK, x402scan, Bazaar) require `amount`. Same atomic value —
+        # the full v2-native pass is tracked separately, this unblocks parsing.
         "maxAmountRequired": _atomic(usd),
+        "amount": _atomic(usd),
         "resource": resource,
         "description": description,
         "mimeType": "application/json",

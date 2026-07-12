@@ -43,6 +43,13 @@ def _custom_openapi() -> dict:
     if app.openapi_schema:
         return app.openapi_schema
     schema = _base_openapi()
+    schema["info"]["x-guidance"] = (
+        "POST /verify with {claim} to ground one factual claim (free, rate "
+        "limited). POST /check with {text} to extract and verify every claim "
+        "in a document (x402 paid, small free daily quota). Both return "
+        "verdicts (supported/refuted/unverified), confidence scores, and "
+        "cited sources."
+    )
     schemes = schema.setdefault("components", {}).setdefault("securitySchemes", {})
     schemes["x402"] = {
         "type": "apiKey",
@@ -53,8 +60,21 @@ def _custom_openapi() -> dict:
     }
     for route_path, item in schema.get("paths", {}).items():
         for op in item.values():
-            if isinstance(op, dict):
-                op["security"] = [{"x402": []}] if route_path == "/check" else []
+            if not isinstance(op, dict):
+                continue
+            if route_path == "/check":
+                op["security"] = [{"x402": []}]
+                op.setdefault("responses", {})["402"] = {
+                    "description": "Payment Required"}
+                price = x402.price_usd("/check")
+                if price is not None:
+                    op["x-payment-info"] = {
+                        "price": {"mode": "fixed", "currency": "USD",
+                                  "amount": f"{price:.6f}"},
+                        "protocols": [{"x402": {}}],
+                    }
+            else:
+                op["security"] = []
     app.openapi_schema = schema
     return schema
 

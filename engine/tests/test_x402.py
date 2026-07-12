@@ -237,3 +237,24 @@ def test_openapi_marks_paid_and_free_surfaces():
     paths = schema["paths"]
     assert paths["/check"]["post"]["security"] == [{"x402": []}]
     assert paths["/verify"]["post"]["security"] == []
+
+
+def test_offers_carry_v2_amount(client, monkeypatch):
+    _enable(monkeypatch, free_per_day=0)
+    r = client.post("/check", json=PAID)
+    assert r.status_code == 402
+    for offer in r.json()["accepts"]:
+        assert offer["amount"] == offer["maxAmountRequired"]
+
+
+def test_openapi_discovery_contract():
+    app_mod.app.openapi_schema = None
+    schema = app_mod.app.openapi()
+    assert schema["info"]["x-guidance"]
+    check_op = schema["paths"]["/check"]["post"]
+    assert check_op["responses"]["402"]["description"] == "Payment Required"
+    pinfo = check_op["x-payment-info"]
+    assert pinfo["price"]["mode"] == "fixed"
+    assert pinfo["price"]["currency"] == "USD"
+    assert pinfo["protocols"] == [{"x402": {}}]
+    assert check_op["requestBody"]["content"]["application/json"]["schema"]
