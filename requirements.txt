@@ -3,3 +3,5 @@
 fastapi>=0.110
 httpx>=0.27
 pydantic>=2.6
+# Ed25519 response attestation (engine/groundcheck_engine/attest.py)
+cryptography>=42

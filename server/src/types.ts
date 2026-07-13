@@ -53,6 +53,10 @@ export interface VerifyResult {
   classifier: string;
   sources: Source[];
   instruments?: ClaimInstrument[];
+  // Signed Ed25519 receipt over a deterministic subset of the response
+  // (engine attest.py). Passed through verbatim; verify offline via the
+  // engine's GET /attest/pubkey.
+  attestation?: Record<string, unknown> | null;
 }
 
 export interface ClaimReport {
@@ -67,4 +71,6 @@ export interface CheckResult {
   backend: string;
   classifier: string;
   report: ClaimReport[];
+  // See VerifyResult.attestation.
+  attestation?: Record<string, unknown> | null;
 }

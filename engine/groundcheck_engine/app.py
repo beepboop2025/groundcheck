@@ -6,6 +6,7 @@ Endpoints:
   GET  /search?q=&n=  the documented GROUNDCHECK_SEARCH_URL contract ({results:[...]})
   POST /verify      retrieve -> classify stance -> verdict for one claim
   POST /check       extract claims from text and verify each
+  GET  /attest/pubkey  Ed25519 public key + how to verify response receipts
   GET/POST /mcp     streamable-HTTP MCP transport (the 3 tools, by URL)
 """
 import asyncio
@@ -19,7 +20,7 @@ from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import config, instruments, mcp_http, x402
+from . import attest, config, instruments, mcp_http, x402
 from .landing import LANDING_HTML
 from .models import (CheckResult, ClaimInstrument, ClaimReport, ResolveResult,
                      Source, VerifyResult)
@@ -342,6 +343,10 @@ async def _verify_claim(claim: str, max_sources: int) -> Tuple[VerifyResult, boo
         claim=claim, backend=retriever.backend, classifier=classifier,
         sources=sources, rationale=rationale, instruments=resolved, **v
     )
+    # Signed receipt over the verdict. Attached before caching, so a cache hit
+    # re-serves the original receipt (signed_at = when the verdict was made).
+    # Never breaks the endpoint: failures come back as {attested: false}.
+    result.attestation = attest.attest_verify_response(result.model_dump())
     # A router outage is transient — never freeze it into the cache.
     if classifier != "error":
         _cache_put(key, result)
@@ -358,6 +363,54 @@ async def _search_and_classify(claim: str, max_sources: int):
 async def health() -> dict:
     return {"status": "ok", "backend": retriever.backend, "version": app.version,
             "x402": x402.enabled()}
+
+
+@app.get("/attest/pubkey")
+async def attest_pubkey() -> JSONResponse:
+    """Public half of response attestation: the Ed25519 key receipts are
+    signed with, the message format, and how to verify a receipt offline."""
+    try:
+        mode = attest.key_mode()
+        info = {
+            "public_key": attest.public_key_hex(),
+            "algo": attest.ALGO,
+            "domain": attest.DOMAIN,
+            "key_mode": mode,
+            "message_format": attest.MESSAGE_FORMAT,
+            "canonicalization": attest.CANONICALIZATION,
+            "manifests": {
+                "verify": "keys: backend (response.backend), claim_sha256 "
+                          "(sha256 hex of response.claim, utf-8), confidence, "
+                          "model (response.classifier), signed_at "
+                          "(receipt.signed_at), source_urls "
+                          "(response.sources[].url, response order), verdict",
+                "check": "keys: backend, checked, claims ([{claim_sha256, "
+                          "verdict, confidence}] from response.report, in "
+                          "order), input_sha256 (attestation.input_sha256; "
+                          "sha256 hex of the submitted text), model "
+                          "(response.classifier), signed_at (receipt.signed_at)",
+            },
+            "howto": "Take the response JSON you were given. Rebuild the "
+                     "manifest for its kind from the fields above, hash it as "
+                     "canonical JSON (sorted keys, compact separators, sha256 "
+                     "hex), check it equals receipt.manifest_hash, then verify "
+                     "receipt.sig over the message "
+                     f"'{attest.MESSAGE_FORMAT}' with any Ed25519 library "
+                     "using receipt.public_key. No call to Groundcheck needed.",
+            "verify_example": attest.VERIFY_EXAMPLE,
+        }
+        if mode == "ephemeral":
+            info["warning"] = (
+                "This deployment signs with an ephemeral per-process key "
+                "(GROUNDCHECK_ATTEST_KEY is not set). Receipts stay verifiable "
+                "against the public key inside each receipt, but the signing "
+                "identity changes on restart, so receipts cannot be tied to a "
+                "long-lived operator identity.")
+        return JSONResponse(info)
+    except Exception as exc:
+        return JSONResponse({"error": f"attestation unavailable: "
+                                      f"{type(exc).__name__}: {exc}"},
+                            status_code=503)
 
 
 @app.get("/.well-known/x402")
@@ -508,9 +561,12 @@ async def _check_text(text: str, max_claims: int) -> Tuple[CheckResult, int]:
     hits = sum(1 for _, cached in results if cached)
     tally = Counter(r.classifier for r, _ in results if r.classifier != "none")
     classifier = tally.most_common(1)[0][0] if tally else "none"
-    return CheckResult(
+    result = CheckResult(
         checked=len(report), backend=retriever.backend, classifier=classifier, report=report
-    ), hits
+    )
+    # Signed receipt over the whole report, bound to a hash of the input text.
+    result.attestation = attest.attest_check_response(result.model_dump(), text)
+    return result, hits
 
 
 @app.post("/check", response_model=CheckResult)

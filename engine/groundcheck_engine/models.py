@@ -1,5 +1,5 @@
 """Typed contracts shared across the engine (and mirrored by the TS server's types.ts)."""
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -61,6 +61,8 @@ class VerifyResult(BaseModel):
     classifier: str
     sources: List[Source]
     instruments: List[ClaimInstrument] = []
+    # Signed receipt over a deterministic subset of this response (attest.py).
+    attestation: Optional[Dict[str, Any]] = None
 
 
 class ClaimReport(BaseModel):
@@ -75,3 +77,5 @@ class CheckResult(BaseModel):
     backend: str
     classifier: str
     report: List[ClaimReport]
+    # Signed receipt over a deterministic subset of this response (attest.py).
+    attestation: Optional[Dict[str, Any]] = None
