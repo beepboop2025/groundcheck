@@ -1,0 +1,9 @@
+.git
+**/node_modules
+server/dist
+**/__pycache__
+**/.pytest_cache
+api
+assets
+docs
+drafts
