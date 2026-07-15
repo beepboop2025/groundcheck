@@ -20,7 +20,7 @@ def client(monkeypatch):
     monkeypatch.setattr(app_module.config, "CACHE_TTL_S", 0)
 
     async def fake_pipeline(claim, max_sources):
-        return ([Source(title="t", url="https://x", snippet="s", stance="supports")], "stub")
+        return ([Source(title="t", url="https://x", snippet="s", stance="supports")], "stub", None)
 
     monkeypatch.setattr(app_module, "_search_and_classify", fake_pipeline)
 

@@ -44,6 +44,19 @@ export interface ResolveResult {
   note: string | null;
 }
 
+// Conformal certification of a verdict (engine conformal.py). Present only on
+// calibrated deployments; certified=true carries a finite-sample guarantee
+// that the error probability for this verdict direction is <= alpha.
+export interface Guarantee {
+  certified: boolean;
+  alpha: number;
+  group: string;
+  score?: number | null;
+  threshold?: number | null;
+  n_calibration?: number | null;
+  calibrated_at?: string | null;
+}
+
 export interface VerifyResult {
   claim: string;
   verdict: Verdict;
@@ -53,6 +66,9 @@ export interface VerifyResult {
   classifier: string;
   sources: Source[];
   instruments?: ClaimInstrument[];
+  // Weighted multi-model panel probability that the claim is true.
+  ensemble_score?: number | null;
+  guarantee?: Guarantee | null;
   // Signed Ed25519 receipt over a deterministic subset of the response
   // (engine attest.py). Passed through verbatim; verify offline via the
   // engine's GET /attest/pubkey.
@@ -64,6 +80,7 @@ export interface ClaimReport {
   verdict: Verdict;
   confidence: number;
   rationale: string;
+  guarantee?: Guarantee | null;
 }
 
 export interface CheckResult {

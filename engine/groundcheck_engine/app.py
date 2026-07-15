@@ -20,10 +20,10 @@ from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import attest, config, instruments, mcp_http, x402
+from . import attest, config, conformal, ensemble, instruments, mcp_http, x402
 from .landing import LANDING_HTML
-from .models import (CheckResult, ClaimInstrument, ClaimReport, ResolveResult,
-                     Source, VerifyResult)
+from .models import (CheckResult, ClaimInstrument, ClaimReport, Guarantee,
+                     ResolveResult, Source, VerifyResult)
 from .retrieval import Retriever
 from .stance import classify_stances
 from .verdict import compute_verdict
@@ -327,7 +327,7 @@ async def _verify_claim(claim: str, max_sources: int) -> Tuple[VerifyResult, boo
     cached = _cache_get(key)
     if cached is not None:
         return cached, True
-    resolved, (sources, classifier) = await asyncio.gather(
+    resolved, (sources, classifier, score) = await asyncio.gather(
         _resolve_claim_instruments(claim),
         _search_and_classify(claim, max_sources),
     )
@@ -339,9 +339,21 @@ async def _verify_claim(claim: str, max_sources: int) -> Tuple[VerifyResult, boo
             " · instrument check: "
             + ", ".join(f"{r!r} does not resolve in open symbology (OpenFIGI)"
                         for r in unresolved))
+    # Conformal certification: only meaningful for a directional verdict, and
+    # only when a calibration artifact is deployed (else certify() -> None).
+    guarantee = None
+    if v["verdict"] in ("supported", "refuted"):
+        group = "instrument" if resolved else "general"
+        g = conformal.certify(v["verdict"], score, group)
+        if g is not None:
+            guarantee = Guarantee(**g)
+            if guarantee.certified:
+                rationale += (f" · certified: error ≤ "
+                              f"{guarantee.alpha:g} ({guarantee.group} calibration)")
     result = VerifyResult(
         claim=claim, backend=retriever.backend, classifier=classifier,
-        sources=sources, rationale=rationale, instruments=resolved, **v
+        sources=sources, rationale=rationale, instruments=resolved,
+        ensemble_score=score, guarantee=guarantee, **v
     )
     # Signed receipt over the verdict. Attached before caching, so a cache hit
     # re-serves the original receipt (signed_at = when the verdict was made).
@@ -355,8 +367,16 @@ async def _verify_claim(claim: str, max_sources: int) -> Tuple[VerifyResult, boo
 
 async def _search_and_classify(claim: str, max_sources: int):
     sources = await retriever.search(claim, max_sources)
+    if config.ENSEMBLE:
+        cal = conformal.load_calibration()
+        weights = cal.weights if cal else {}
+        classifier, score, _ = await ensemble.classify_panel(claim, sources, weights)
+        # The panel needs the router too; if it could not run at all, fall
+        # through to the single-router path so behavior never regresses.
+        if classifier not in ("unavailable", "no-providers", "error"):
+            return sources, classifier, score
     classifier = await classify_stances(claim, sources)
-    return sources, classifier
+    return sources, classifier, None
 
 
 @app.get("/health")
@@ -555,7 +575,7 @@ async def _check_text(text: str, max_claims: int) -> Tuple[CheckResult, int]:
     results = await asyncio.gather(*(one(c) for c in claims))
     report = [
         ClaimReport(claim=r.claim, verdict=r.verdict, confidence=r.confidence,
-                    rationale=r.rationale)
+                    rationale=r.rationale, guarantee=r.guarantee)
         for r, _ in results
     ]
     hits = sum(1 for _, cached in results if cached)

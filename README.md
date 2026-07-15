@@ -96,6 +96,32 @@ memory. Instead it:
 That's the difference between an LLM judge and a grounding check: the judge's discretion is the
 product; here it's deliberately fenced in by retrieved evidence.
 
+## Calibrated verdicts: the "error ≤ α" guarantee
+
+A confidence number without a promise attached is just vibes with decimals. When a
+calibration artifact is deployed, Groundcheck attaches a `guarantee` object to
+directional verdicts, built with **split conformal prediction** (adapted from
+*Multi-LLM Adaptive Conformal Inference*, arXiv:2602.01285):
+
+- Stance classification runs as a **panel**: up to `GROUNDCHECK_ENSEMBLE_MAX` free
+  providers judge the claim independently (different model families disagree on
+  *which* claims they get wrong, so the ensemble beats any one of them). Per-source
+  stances are majority-voted; each panelist also emits a probability the claim is
+  true given only the snippets, combined into a weighted `ensemble_score`.
+- `scripts/calibrate.py` runs the real pipeline over a labeled claim set and stores
+  finite-sample thresholds per claim group (`instrument` / `general`, `global`
+  fallback) in `calibration/calibration.json`.
+- A verdict is **certified** (`guarantee.certified: true`) only when its score
+  clears the threshold. The math guarantees that, for claims exchangeable with the
+  calibration set, a **false claim is certified `supported` with probability ≤ α**
+  (default 0.1), and symmetrically for `refuted`. No distributional assumptions,
+  exact in finite samples.
+
+Honest degradation, as everywhere else: no artifact → no guarantee is ever claimed;
+too little calibration data for a given α → the threshold is refused rather than
+extrapolated. The guarantee is only as good as the exchangeability assumption —
+recalibrate with domain claims before leaning on it in a new domain.
+
 ## Configuration (engine)
 
 | Var | Default | Purpose |
@@ -106,6 +132,9 @@ product; here it's deliberately fenced in by retrieved evidence.
 | `GROUNDCHECK_ROUTER_PATH` | sibling checkout | path to the `free-llm-router` Python package |
 | `GROUNDCHECK_ENGINE_HOST` / `_PORT` | `127.0.0.1` / `8723` | engine bind address |
 | `GROQ_API_KEY` _(or any router provider key)_ | — | enables stance classification |
+| `GROUNDCHECK_ENSEMBLE` | `1` | multi-provider stance panel (`0` = single-router) |
+| `GROUNDCHECK_ENSEMBLE_MAX` | `3` | max concurrent panelists per claim |
+| `GROUNDCHECK_CALIBRATION` | `calibration/calibration.json` | conformal artifact path |
 
 ### Machine-payable hosting (x402)
 

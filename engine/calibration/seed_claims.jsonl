@@ -1,0 +1,64 @@
+{"claim": "Paris is the capital of France.", "label": true}
+{"claim": "Water is composed of hydrogen and oxygen.", "label": true}
+{"claim": "The Great Wall of China is located in China.", "label": true}
+{"claim": "Mount Everest is the highest mountain above sea level.", "label": true}
+{"claim": "The Pacific Ocean is the largest ocean on Earth.", "label": true}
+{"claim": "Albert Einstein developed the theory of general relativity.", "label": true}
+{"claim": "The human heart has four chambers.", "label": true}
+{"claim": "Tokyo is the capital of Japan.", "label": true}
+{"claim": "The Amazon River is in South America.", "label": true}
+{"claim": "Oxygen is a chemical element with the symbol O.", "label": true}
+{"claim": "The Berlin Wall fell in 1989.", "label": true}
+{"claim": "William Shakespeare wrote Hamlet.", "label": true}
+{"claim": "The Earth orbits the Sun.", "label": true}
+{"claim": "Canberra is the capital of Australia.", "label": true}
+{"claim": "The speed of light in vacuum is approximately 300,000 kilometers per second.", "label": true}
+{"claim": "Marie Curie won two Nobel Prizes.", "label": true}
+{"claim": "The Sahara is a desert in Africa.", "label": true}
+{"claim": "Neil Armstrong was the first person to walk on the Moon.", "label": true}
+{"claim": "Python is a programming language.", "label": true}
+{"claim": "The Eiffel Tower is located in Paris.", "label": true}
+{"claim": "India gained independence from Britain in 1947.", "label": true}
+{"claim": "The Nile flows through Egypt.", "label": true}
+{"claim": "The Mona Lisa was painted by Leonardo da Vinci.", "label": true}
+{"claim": "Antarctica is the coldest continent on Earth.", "label": true}
+{"claim": "Sydney is the capital of Australia.", "label": false}
+{"claim": "The Great Wall of China is located in India.", "label": false}
+{"claim": "Albert Einstein invented the telephone.", "label": false}
+{"claim": "The human heart has six chambers.", "label": false}
+{"claim": "The Berlin Wall fell in 2001.", "label": false}
+{"claim": "William Shakespeare wrote The Odyssey.", "label": false}
+{"claim": "The Sun orbits the Earth.", "label": false}
+{"claim": "Mount Kilimanjaro is the highest mountain on Earth.", "label": false}
+{"claim": "The Atlantic Ocean is the largest ocean on Earth.", "label": false}
+{"claim": "Marie Curie discovered penicillin.", "label": false}
+{"claim": "Buzz Aldrin was the first person to walk on the Moon.", "label": false}
+{"claim": "The Eiffel Tower is located in London.", "label": false}
+{"claim": "India gained independence from Britain in 1965.", "label": false}
+{"claim": "The Nile flows through Brazil.", "label": false}
+{"claim": "The Mona Lisa was painted by Pablo Picasso.", "label": false}
+{"claim": "Antarctica is the hottest continent on Earth.", "label": false}
+{"claim": "Tokyo is the capital of China.", "label": false}
+{"claim": "Water is composed of nitrogen and helium.", "label": false}
+{"claim": "The Amazon River is in Europe.", "label": false}
+{"claim": "Paris is the capital of Italy.", "label": false}
+{"claim": "The Pacific Ocean is the smallest ocean on Earth.", "label": false}
+{"claim": "Hamlet was written by Charles Dickens.", "label": false}
+{"claim": "The speed of light in vacuum is approximately 300 kilometers per hour.", "label": false}
+{"claim": "Rome is the capital of Spain.", "label": false}
+{"claim": "$AAPL is the ticker symbol of Apple Inc.", "label": true}
+{"claim": "$TSLA is the ticker symbol of Tesla, Inc.", "label": true}
+{"claim": "$NVDA is the ticker symbol of Nvidia Corporation.", "label": true}
+{"claim": "$JPM is the ticker symbol of JPMorgan Chase.", "label": true}
+{"claim": "$META is the ticker symbol of Meta Platforms.", "label": true}
+{"claim": "$XOM is the ticker symbol of Exxon Mobil.", "label": true}
+{"claim": "$NFLX is the ticker symbol of Netflix.", "label": true}
+{"claim": "$V is the ticker symbol of Visa Inc.", "label": true}
+{"claim": "$MSFT is the ticker symbol of Boeing.", "label": false}
+{"claim": "$KO is the ticker symbol of PepsiCo.", "label": false}
+{"claim": "$AMZN is the ticker symbol of Alibaba Group.", "label": false}
+{"claim": "$BA is the ticker symbol of Bank of America.", "label": false}
+{"claim": "$WMT is the ticker symbol of Walgreens.", "label": false}
+{"claim": "$INTC is the ticker symbol of International Paper.", "label": false}
+{"claim": "$GM is the ticker symbol of General Mills.", "label": false}
+{"claim": "$GOOG is the ticker symbol of General Electric.", "label": false}

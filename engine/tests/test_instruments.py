@@ -129,7 +129,7 @@ def test_resolve_is_priced_for_x402():
 def _stub_pipeline(monkeypatch):
     async def fake_search_and_classify(claim, max_sources):
         return ([Source(title="t", url="https://x", snippet="s", stance="neutral")],
-                "stub")
+                "stub", None)
     monkeypatch.setattr(app_module, "_search_and_classify", fake_search_and_classify)
     monkeypatch.setattr(app_module.config, "CACHE_TTL_S", 0)
 

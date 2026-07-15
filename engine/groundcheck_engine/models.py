@@ -52,6 +52,19 @@ class ClaimInstrument(BaseModel):
     instrument: Optional[Instrument] = None
 
 
+class Guarantee(BaseModel):
+    """Conformal certification of a verdict (conformal.py). Present only when a
+    calibration artifact is deployed; certified=True means the ensemble score
+    cleared a finite-sample threshold giving error probability <= alpha."""
+    certified: bool
+    alpha: float
+    group: str
+    score: Optional[float] = None
+    threshold: Optional[float] = None
+    n_calibration: Optional[int] = None
+    calibrated_at: Optional[str] = None
+
+
 class VerifyResult(BaseModel):
     claim: str
     verdict: Verdict
@@ -61,6 +74,10 @@ class VerifyResult(BaseModel):
     classifier: str
     sources: List[Source]
     instruments: List[ClaimInstrument] = []
+    # Weighted multi-model panel probability that the claim is true (ensemble.py).
+    ensemble_score: Optional[float] = None
+    # Conformal guarantee; absent on uncalibrated deployments.
+    guarantee: Optional[Guarantee] = None
     # Signed receipt over a deterministic subset of this response (attest.py).
     attestation: Optional[Dict[str, Any]] = None
 
@@ -70,6 +87,7 @@ class ClaimReport(BaseModel):
     verdict: Verdict
     confidence: float
     rationale: str
+    guarantee: Optional[Guarantee] = None
 
 
 class CheckResult(BaseModel):

@@ -28,6 +28,18 @@ RESOLVE_CACHE_TTL_S = int(os.getenv("GROUNDCHECK_RESOLVE_CACHE_TTL_S", "86400"))
 VERIFY_RESOLVES_INSTRUMENTS = os.getenv(
     "GROUNDCHECK_VERIFY_INSTRUMENTS", "1") not in ("0", "off", "false")
 
+# ---- calibrated verification (multi-model panel + conformal guarantee) ----
+# The panel queries up to ENSEMBLE_MAX free providers concurrently; each claim
+# costs that many LLM calls instead of one, paid for with a calibratable score.
+ENSEMBLE = os.getenv("GROUNDCHECK_ENSEMBLE", "1") not in ("0", "off", "false")
+ENSEMBLE_MAX = int(os.getenv("GROUNDCHECK_ENSEMBLE_MAX", "3"))
+# Conformal calibration artifact (written by scripts/calibrate.py). Absent ->
+# verdicts carry no guarantee and never claim one.
+CALIBRATION_PATH = os.getenv(
+    "GROUNDCHECK_CALIBRATION",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "calibration", "calibration.json"))
+
 # ---- x402 pay-per-call (dormant unless GROUNDCHECK_X402_PAY_TO is set) ----
 # Endpoint path -> USD per call. /verify and /search stay free by design:
 # the single-claim surface is the adoption funnel; the batch document check
