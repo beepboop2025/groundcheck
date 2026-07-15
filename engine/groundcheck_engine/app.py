@@ -20,10 +20,10 @@ from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import attest, config, conformal, ensemble, instruments, mcp_http, x402
+from . import atoms, attest, config, conformal, ensemble, instruments, mcp_http, x402
 from .landing import LANDING_HTML
-from .models import (CheckResult, ClaimInstrument, ClaimReport, Guarantee,
-                     ResolveResult, Source, VerifyResult)
+from .models import (AtomReport, CheckResult, ClaimInstrument, ClaimReport,
+                     Guarantee, ResolveResult, Source, VerifyResult)
 from .retrieval import Retriever
 from .stance import classify_stances
 from .verdict import compute_verdict
@@ -322,11 +322,34 @@ async def _resolve_claim_instruments(claim: str) -> List[ClaimInstrument]:
 
 
 async def _verify_claim(claim: str, max_sources: int) -> Tuple[VerifyResult, bool]:
-    """Shared retrieve → classify → verdict path. Returns (result, was_cached)."""
+    """Shared retrieve → classify → verdict path. Returns (result, was_cached).
+
+    A compound claim is decomposed into atoms (atoms.py), each verified on its
+    OWN evidence, and recombined weakest-link — so a true half can't carry a
+    false half to "supported". Atomic claims take the direct single path.
+    """
     key = f"{max_sources}|{' '.join(claim.lower().split())}"
     cached = _cache_get(key)
     if cached is not None:
         return cached, True
+
+    sub_claims = atoms.decompose(claim) if config.DECOMPOSE else [claim]
+
+    if len(sub_claims) > 1:
+        result, cacheable = await _verify_compound(claim, sub_claims, max_sources)
+    else:
+        result, cacheable = await _verify_atomic(claim, max_sources)
+
+    result.attestation = attest.attest_verify_response(result.model_dump())
+    if cacheable:
+        _cache_put(key, result)
+    return result, False
+
+
+async def _verify_atomic(claim: str, max_sources: int) -> Tuple[VerifyResult, bool]:
+    """Retrieve → classify → verdict for a single (atomic) claim, with
+    instrument resolution and conformal certification. Returns (result,
+    cacheable) — cacheable is False on a transient router outage."""
     resolved, (sources, classifier, score) = await asyncio.gather(
         _resolve_claim_instruments(claim),
         _search_and_classify(claim, max_sources),
@@ -355,14 +378,55 @@ async def _verify_claim(claim: str, max_sources: int) -> Tuple[VerifyResult, boo
         sources=sources, rationale=rationale, instruments=resolved,
         ensemble_score=score, guarantee=guarantee, **v
     )
-    # Signed receipt over the verdict. Attached before caching, so a cache hit
-    # re-serves the original receipt (signed_at = when the verdict was made).
-    # Never breaks the endpoint: failures come back as {attested: false}.
-    result.attestation = attest.attest_verify_response(result.model_dump())
-    # A router outage is transient — never freeze it into the cache.
-    if classifier != "error":
-        _cache_put(key, result)
-    return result, False
+    return result, classifier != "error"
+
+
+async def _verify_compound(claim: str, sub_claims: List[str],
+                           max_sources: int) -> Tuple[VerifyResult, bool]:
+    """Verify each atom independently and recombine weakest-link. The compound
+    carries no conformal guarantee — calibration is over atomic claims, so a
+    certified error bound on a recombined verdict would be unbacked."""
+    # A few sources per atom keeps the fan-out affordable; atoms are narrower.
+    per_atom = max(2, min(max_sources, 4))
+    sem = asyncio.Semaphore(4)
+
+    async def one(sub: str):
+        async with sem:
+            sources, classifier, score = await _search_and_classify(sub, per_atom)
+        v = compute_verdict(sub, sources)
+        return sub, v, sources, classifier
+
+    verified = await asyncio.gather(*(one(s) for s in sub_claims))
+
+    atom_verdicts = [v for _, v, _, _ in verified]
+    combined = atoms.aggregate([{k: a[k] for k in ("verdict", "confidence", "sufficiency")}
+                                for a in atom_verdicts])
+    rationale = combined.pop("rationale")
+    atom_reports = [
+        AtomReport(claim=sub, verdict=v["verdict"], confidence=v["confidence"],
+                   sufficiency=v.get("sufficiency"))
+        for sub, v, _, _ in verified
+    ]
+    # Union sources across atoms so the compound verdict stays checkable; a
+    # single retrieval-empty atom must not blank the whole citation list.
+    all_sources: List[Source] = []
+    seen_urls = set()
+    for _, _, srcs, _ in verified:
+        for s in srcs:
+            if s.url not in seen_urls:
+                seen_urls.add(s.url)
+                all_sources.append(s)
+    classifiers = {c for _, _, _, c in verified}
+    classifier = "error" if classifiers == {"error"} else \
+        next((c for c in (cl for _, _, _, cl in verified) if c != "error"), "none")
+
+    result = VerifyResult(
+        claim=claim, backend=retriever.backend, classifier=classifier,
+        sources=all_sources, rationale=rationale, instruments=[],
+        atoms=atom_reports, ensemble_score=None, guarantee=None, **combined,
+    )
+    cacheable = not all(c == "error" for _, _, _, c in verified)
+    return result, cacheable
 
 
 async def _search_and_classify(claim: str, max_sources: int):
@@ -575,7 +639,8 @@ async def _check_text(text: str, max_claims: int) -> Tuple[CheckResult, int]:
     results = await asyncio.gather(*(one(c) for c in claims))
     report = [
         ClaimReport(claim=r.claim, verdict=r.verdict, confidence=r.confidence,
-                    rationale=r.rationale, guarantee=r.guarantee)
+                    rationale=r.rationale, sufficiency=r.sufficiency,
+                    guarantee=r.guarantee)
         for r, _ in results
     ]
     hits = sum(1 for _, cached in results if cached)

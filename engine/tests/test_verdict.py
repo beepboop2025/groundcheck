@@ -42,6 +42,18 @@ def test_conflict_refused_not_majority_voted():
     assert "disagree" in v["rationale"]
 
 
+def test_sufficiency_distinguishes_the_unverified_reasons():
+    # the three "unverified" buckets must be tellable apart (SURE-RAG)
+    assert compute_verdict("x", [])["sufficiency"] == "no_sources"
+    assert compute_verdict("x", [src("neutral"), src("neutral")])["sufficiency"] == "no_stance"
+    assert compute_verdict("x", [src("supports"), src("refutes")])["sufficiency"] == "conflict"
+
+
+def test_lone_source_is_insufficient_but_two_are_sufficient():
+    assert compute_verdict("x", [src("supports")])["sufficiency"] == "insufficient"
+    assert compute_verdict("x", [src("supports"), src("supports")])["sufficiency"] == "sufficient"
+
+
 def test_refutes_only():
     v = compute_verdict("x", [src("refutes"), src("refutes")])
     assert v["verdict"] == "refuted"

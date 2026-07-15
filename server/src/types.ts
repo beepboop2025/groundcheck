@@ -57,6 +57,16 @@ export interface Guarantee {
   calibrated_at?: string | null;
 }
 
+export type Sufficiency =
+  | "sufficient" | "insufficient" | "no_sources" | "no_stance" | "conflict";
+
+export interface AtomReport {
+  claim: string;
+  verdict: Verdict;
+  confidence: number;
+  sufficiency?: Sufficiency | null;
+}
+
 export interface VerifyResult {
   claim: string;
   verdict: Verdict;
@@ -66,6 +76,10 @@ export interface VerifyResult {
   classifier: string;
   sources: Source[];
   instruments?: ClaimInstrument[];
+  // Why the verdict is (not) directional (SURE-RAG three-way distinction).
+  sufficiency?: Sufficiency | null;
+  // Present when a compound claim was split into independently-verified atoms.
+  atoms?: AtomReport[] | null;
   // Weighted multi-model panel probability that the claim is true.
   ensemble_score?: number | null;
   guarantee?: Guarantee | null;
@@ -80,6 +94,7 @@ export interface ClaimReport {
   verdict: Verdict;
   confidence: number;
   rationale: string;
+  sufficiency?: Sufficiency | null;
   guarantee?: Guarantee | null;
 }
 

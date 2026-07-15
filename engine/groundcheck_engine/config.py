@@ -28,6 +28,11 @@ RESOLVE_CACHE_TTL_S = int(os.getenv("GROUNDCHECK_RESOLVE_CACHE_TTL_S", "86400"))
 VERIFY_RESOLVES_INSTRUMENTS = os.getenv(
     "GROUNDCHECK_VERIFY_INSTRUMENTS", "1") not in ("0", "off", "false")
 
+# ---- atomic-claim decomposition (SURE-RAG / Fact in Fragments) ----
+# Split a compound claim into independently-verified atoms and recombine
+# weakest-link, so a true conjunct can't carry a false one to "supported".
+DECOMPOSE = os.getenv("GROUNDCHECK_DECOMPOSE", "1") not in ("0", "off", "false")
+
 # ---- calibrated verification (multi-model panel + conformal guarantee) ----
 # The panel queries up to ENSEMBLE_MAX free providers concurrently; each claim
 # costs that many LLM calls instead of one, paid for with a calibratable score.

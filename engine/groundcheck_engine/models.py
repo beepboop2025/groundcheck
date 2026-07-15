@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 Stance = Literal["supports", "refutes", "neutral"]
 Verdict = Literal["supported", "refuted", "unverified"]
+# Why a verdict is (not) directional — SURE-RAG three-way distinction.
+Sufficiency = Literal["sufficient", "insufficient", "no_sources", "no_stance", "conflict"]
 
 
 class Source(BaseModel):
@@ -65,6 +67,14 @@ class Guarantee(BaseModel):
     calibrated_at: Optional[str] = None
 
 
+class AtomReport(BaseModel):
+    """One atomic sub-claim of a compound claim, verified on its own evidence."""
+    claim: str
+    verdict: Verdict
+    confidence: float
+    sufficiency: Optional[Sufficiency] = None
+
+
 class VerifyResult(BaseModel):
     claim: str
     verdict: Verdict
@@ -74,6 +84,12 @@ class VerifyResult(BaseModel):
     classifier: str
     sources: List[Source]
     instruments: List[ClaimInstrument] = []
+    # Why the verdict is (not) directional — distinguishes no-evidence from
+    # conflict from a real-but-insufficient lean (SURE-RAG three-way).
+    sufficiency: Optional[Sufficiency] = None
+    # Present when the claim was compound and split into atoms (atoms.py); the
+    # compound verdict is the weakest-link aggregate of these.
+    atoms: Optional[List[AtomReport]] = None
     # Weighted multi-model panel probability that the claim is true (ensemble.py).
     ensemble_score: Optional[float] = None
     # Conformal guarantee; absent on uncalibrated deployments.
@@ -87,6 +103,7 @@ class ClaimReport(BaseModel):
     verdict: Verdict
     confidence: float
     rationale: str
+    sufficiency: Optional[Sufficiency] = None
     guarantee: Optional[Guarantee] = None
 
 

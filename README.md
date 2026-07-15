@@ -43,7 +43,22 @@ verify_claim ─▶ TS MCP server ─HTTP▶ Python engine
 | `attribution_badge()` | Want to mark content as checked | a Markdown badge |
 | `resolve_instrument(query, idType?, maxResults?)` | Text names a security and you need to know exactly which one | canonical FIGI records + provenance (Bloomberg open symbology) |
 
-`verdict` is one of `supported` · `refuted` · `unverified`.
+`verdict` is one of `supported` · `refuted` · `unverified`. Each verdict also
+carries a `sufficiency` tag (`sufficient` · `insufficient` · `no_sources` ·
+`no_stance` · `conflict`) so an agent can tell "I found nothing" from "sources
+exist but don't establish it" from "sources disagree" — the three ways an
+abstention happens carry different meaning and are no longer collapsed
+([SURE-RAG](https://arxiv.org/abs/2605.03534)).
+
+**Compound claims are decomposed.** A claim like _"Marie Curie won two Nobel
+Prizes and was born in Paris"_ is split into atoms
+([Fact in Fragments](https://arxiv.org/abs/2506.07446)), each verified on its
+own evidence and recombined weakest-link: one false part refutes the whole, one
+unproven part blocks a `supported`. The true half can no longer carry the false
+half past the check. The atom breakdown is returned in `atoms`. (Decomposition
+is rule-based and high-precision — it splits only on clean conjunction
+boundaries and otherwise leaves the claim whole; disable with
+`GROUNDCHECK_DECOMPOSE=0`.)
 
 **Remote MCP (no install):** add `https://groundcheck.seiche.info/mcp` as a remote MCP server (Claude/ChatGPT/Cursor connectors, or a gateway like Smithery/Glama). Speaks streamable-HTTP JSON-RPC; `verify_claim` is free, the paid tools answer HTTP 402 with an x402 offer.
 

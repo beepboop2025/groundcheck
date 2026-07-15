@@ -7,6 +7,18 @@ Design decisions, and how they're resolved here:
   3. ONE source is a lean, not a ruling: a lone source caps confidence at SINGLE_CAP.
   4. CONFIDENCE SATURATES: 1 - DECAY**n, so each extra agreeing source adds less.
 
+SUFFICIENCY (SURE-RAG, arXiv:2605.03534): "retrieval is not verification." The three
+ways a check fails to reach a directional verdict carry DIFFERENT meaning and must not
+be collapsed into one opaque "unverified". Every verdict now reports a `sufficiency`
+tag so an agent can tell "I found nothing" from "sources exist but don't establish it"
+from "sources actively disagree":
+
+    sufficient      a directional verdict is justified (supported/refuted)
+    no_sources      retrieval returned nothing to reason over
+    no_stance       sources were found but none bear on the claim
+    conflict        sources disagree — refused, never majority-voted
+    insufficient    a lone weak source: a lean, not enough to certify
+
 Tune the three constants to move the cautious/decisive trade-off.
 """
 from typing import Dict, List
@@ -16,6 +28,7 @@ from .models import Source
 SINGLE_CAP = 0.6      # max confidence from a lone supporting/refuting source
 DECAY = 0.45          # smaller -> confidence rises faster with more agreeing sources
 CONFLICT_CONF = 0.25  # confidence reported when sources disagree
+SUFFICIENT_MIN = 2    # agreeing sources needed to call evidence "sufficient"
 
 
 def _saturate(n: int) -> float:
@@ -26,7 +39,8 @@ def _saturate(n: int) -> float:
 def compute_verdict(claim: str, sources: List[Source]) -> Dict[str, object]:
     evidence = [s for s in sources if not s.stub]
     if not evidence:
-        return {"verdict": "unverified", "confidence": 0.0, "rationale": "No live sources."}
+        return {"verdict": "unverified", "confidence": 0.0, "sufficiency": "no_sources",
+                "rationale": "No live sources."}
 
     supports = sum(1 for s in evidence if s.stance == "supports")
     refutes = sum(1 for s in evidence if s.stance == "refutes")
@@ -36,6 +50,7 @@ def compute_verdict(claim: str, sources: List[Source]) -> Dict[str, object]:
         return {
             "verdict": "unverified",
             "confidence": CONFLICT_CONF,
+            "sufficiency": "conflict",
             "rationale": f"Sources disagree ({supports} support, {refutes} refute).",
         }
 
@@ -44,6 +59,7 @@ def compute_verdict(claim: str, sources: List[Source]) -> Dict[str, object]:
         return {
             "verdict": "unverified",
             "confidence": 0.15,
+            "sufficiency": "no_stance",
             "rationale": f"{len(evidence)} source(s) found, none took a clear stance.",
         }
 
@@ -51,8 +67,12 @@ def compute_verdict(claim: str, sources: List[Source]) -> Dict[str, object]:
     # (3)(4) Cap a lone source; saturate beyond.
     confidence = min(SINGLE_CAP, _saturate(1)) if n == 1 else _saturate(n)
     verb = "support" if verdict == "supported" else "refute"
+    # A single agreeing source is a directional LEAN whose evidence base is not yet
+    # sufficient to certify; two or more agreeing (and none against) is sufficient.
+    sufficiency = "sufficient" if n >= SUFFICIENT_MIN else "insufficient"
     return {
         "verdict": verdict,
         "confidence": round(confidence, 2),
+        "sufficiency": sufficiency,
         "rationale": f"{n} source(s) {verb} the claim, none disagree.",
     }
