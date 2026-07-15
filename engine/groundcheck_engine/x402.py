@@ -45,11 +45,14 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import os
 
 import httpx
 
 from . import config
+
+logger = logging.getLogger("groundcheck.x402")
 
 _ASSET_DECIMALS = 6          # USDC
 _TIMEOUT_S = 15
@@ -528,6 +531,17 @@ def _facilitator_auth(method: str, full_url: str) -> dict:
     return {"Authorization": static} if static else {}
 
 
+class FacilitatorHTTPError(Exception):
+    """A non-2xx from the facilitator, carrying its status + response body —
+    the body is where CDP explains WHAT it rejected (schema, auth, funds),
+    and losing it makes payment failures undebuggable from the buyer side."""
+
+    def __init__(self, status: int, body: str):
+        self.status = status
+        self.body = (body or "")[:500]
+        super().__init__(f"facilitator HTTP {status}: {self.body}")
+
+
 def _facilitator_post(path: str, body: dict) -> dict:
     url = _facilitator_url().rstrip("/")
     full = f"{url}{path}"
@@ -542,7 +556,10 @@ def _facilitator_post(path: str, body: dict) -> dict:
             r = c.post(full, json=body, headers=headers)
     else:
         r = httpx.post(full, json=body, headers=headers, timeout=_TIMEOUT_S)
-    r.raise_for_status()
+    if r.status_code >= 400:
+        logger.warning("x402 facilitator %s -> HTTP %s: %s",
+                       path, r.status_code, r.text[:500])
+        raise FacilitatorHTTPError(r.status_code, r.text)
     out = r.json()
     if not isinstance(out, dict):
         raise ValueError("facilitator returned a non-object body")
@@ -561,7 +578,9 @@ def verify(payment: dict, reqs: dict) -> tuple[bool, str]:
     """Ask the facilitator whether the signed payment satisfies `reqs`."""
     try:
         out = _facilitator_post("/verify", _envelope(payment, reqs))
-    except Exception as e:  # network, HTTP, JSON — all fail closed
+    except FacilitatorHTTPError as e:  # surface WHY (schema/auth/funds)
+        return False, f"facilitator verify rejected: {e}"
+    except Exception as e:  # network, JSON — all fail closed
         return False, f"facilitator verify unavailable: {type(e).__name__}"
     if out.get("isValid") is True:
         return True, ""
@@ -572,6 +591,9 @@ def settle(payment: dict, reqs: dict) -> tuple[bool, dict]:
     """Settle on-chain via the facilitator. Fail-closed: no settle, no result."""
     try:
         out = _facilitator_post("/settle", _envelope(payment, reqs))
+    except FacilitatorHTTPError as e:  # surface WHY (schema/auth/funds)
+        return False, {"success": False,
+                       "errorReason": f"facilitator settle rejected: {e}"}
     except Exception as e:
         return False, {"success": False,
                        "errorReason": f"facilitator settle unavailable: {type(e).__name__}"}

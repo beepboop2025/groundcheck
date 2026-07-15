@@ -19,3 +19,7 @@ venv/
 
 # OG build intermediates
 assets/*.2x.png
+
+# buyer bootstrap (scripts/)
+scripts/.buyer-venv/
+scripts/out/
