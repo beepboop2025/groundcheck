@@ -86,6 +86,7 @@ def test_facilitator_post_signs_with_cdp_when_enabled(monkeypatch):
         return "signed"
 
     class FakeResp:
+        status_code = 200
         def raise_for_status(self):
             pass
 
