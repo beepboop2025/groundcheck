@@ -117,3 +117,68 @@ class CheckResult(BaseModel):
     report: List[ClaimReport]
     # Signed receipt over a deterministic subset of this response (attest.py).
     attestation: Optional[Dict[str, Any]] = None
+
+
+# How a paid delivery compares to what was advertised (delivery.py):
+# consistency, never merit — "as advertised", not "good service".
+DeliveryVerdict = Literal["consistent", "degraded", "inconsistent", "unverifiable"]
+
+
+class DeliveryGrounding(BaseModel):
+    """Grounding tally over the factual claims in a delivered response."""
+    checked: int
+    supported: int
+    refuted: int
+    unverified: int
+    mean_confidence: Optional[float] = None
+    report: List[ClaimReport]
+
+
+class DeliveryConformance(BaseModel):
+    """Structural check of the delivered payload against the schema the
+    service advertised (402 offer / Bazaar listing). checked=False when the
+    buyer supplied no schema."""
+    checked: bool
+    valid: Optional[bool] = None
+    problems: List[str] = []
+
+
+class DeliveryPayment(BaseModel):
+    """The x402 settlement receipt the buyer presented, bound by hash into
+    the attestation. Binding records WHAT was presented; confirming the
+    transaction on-chain is the verifier's own step."""
+    bound: bool
+    receipt_sha256: Optional[str] = None
+    network: Optional[str] = None
+    transaction: Optional[str] = None
+    payer: Optional[str] = None
+    success: Optional[bool] = None
+    problems: List[str] = []
+
+
+class DeliveryResult(BaseModel):
+    """POST /attest-delivery: a signed, offline-verifiable receipt binding an
+    agent's payment to what the paid service actually delivered."""
+    service: str
+    delivery_verdict: DeliveryVerdict
+    rationale: str
+    response_sha256: str
+    request_sha256: Optional[str] = None
+    grounding: DeliveryGrounding
+    conformance: DeliveryConformance
+    payment: DeliveryPayment
+    backend: str
+    classifier: str
+    # Signed receipt (kind "delivery") over a deterministic subset (attest.py).
+    attestation: Optional[Dict[str, Any]] = None
+
+
+class ExtractResult(BaseModel):
+    """POST /extract: checkable atomic claims pulled from text — the cheap
+    first step of a verification loop (extract -> ground -> attest)."""
+    count: int
+    claims: List[str]
+    method: str
+    input_sha256: str
+    # Signed receipt (kind "extract") bound to the input hash (attest.py).
+    attestation: Optional[Dict[str, Any]] = None

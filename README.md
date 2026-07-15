@@ -13,6 +13,12 @@ Groundcheck verifies a factual claim against live sources and returns a **verdic
 **confidence score**, and **citations**. Any agent — Claude Code, Cursor, your own — can call
 it mid-task, before it states a fact it isn't sure of.
 
+It is also a **verification layer for agentic commerce**: when an agent pays another
+service over x402, `attest_delivery` verifies what was delivered against what was
+advertised and issues a signed, offline-verifiable **delivery receipt** binding payment →
+delivery → grounded content — the neutral accountability trail the a2a-payments
+literature calls the missing layer ([docs/delivery-attestation.md](docs/delivery-attestation.md)).
+
 ## Architecture
 
 Two parts, each in the language that fits it:
@@ -42,6 +48,8 @@ verify_claim ─▶ TS MCP server ─HTTP▶ Python engine
 | `check_citations(text, maxClaims?)` | Before publishing an AI-generated draft | per-claim verdict report |
 | `attribution_badge()` | Want to mark content as checked | a Markdown badge |
 | `resolve_instrument(query, idType?, maxResults?)` | Text names a security and you need to know exactly which one | canonical FIGI records + provenance (Bloomberg open symbology) |
+| `extract_claims(text, maxClaims?)` | Want to see which claims a document makes before paying to ground them | atomic checkable claims + a signed receipt bound to the input hash |
+| `attest_delivery(service, response_text, …)` | You paid another service over x402 and will act on (or account for) its output | a signed **delivery receipt** binding payment → delivery → grounded content ([docs](docs/delivery-attestation.md)) |
 
 `verdict` is one of `supported` · `refuted` · `unverified`. Each verdict also
 carries a `sufficiency` tag (`sufficient` · `insufficient` · `no_sources` ·
@@ -153,10 +161,12 @@ recalibrate with domain claims before leaning on it in a new domain.
 
 ### Machine-payable hosting (x402)
 
-A hosted engine can charge AI agents per `/check` call in USDC over the
+A hosted engine can charge AI agents per call in USDC over the
 [x402 protocol](https://x402.org) — HTTP 402 + signed transfer authorization,
 no accounts or API keys. Dormant unless `GROUNDCHECK_X402_PAY_TO` is set;
-`/verify` stays free forever, `/check` and `/resolve` get a free daily quota per IP first.
+`/verify` stays free forever, the paid surface gets a free daily quota per IP
+first and prices as a granular verification loop: **extract $0.005 → ground
+$0.02 → delivery-attestation bundle $0.05** (plus `/resolve` at $0.005).
 Both protocol generations (v1 and v2) are accepted, and agents can read the
 offer at `GET /.well-known/x402`. Full operator guide: [docs/x402.md](docs/x402.md).
 

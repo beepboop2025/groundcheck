@@ -13,6 +13,8 @@ Surface and payment mirror the REST side exactly:
   verify_claim       free (rate limited)
   check_citations    x402-priced (same price as POST /check)
   resolve_instrument x402-priced (same price as POST /resolve)
+  extract_claims     x402-priced (same price as POST /extract)
+  attest_delivery    x402-priced (same price as POST /attest-delivery)
 Unpaid calls to a priced tool answer HTTP 402 with the offer, so a
 wallet-holding agent can pay and retry. Free daily quota applies first, exactly
 like the REST paths.
@@ -25,7 +27,7 @@ from . import config, x402
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "groundcheck"
-SERVER_VERSION = "0.5.0"
+SERVER_VERSION = "0.6.0"
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -40,6 +42,8 @@ MAX_BATCH = 8
 TOOL_PRICED_AS = {
     "check_citations": "/check",
     "resolve_instrument": "/resolve",
+    "extract_claims": "/extract",
+    "attest_delivery": "/attest-delivery",
 }
 
 TOOLS: list[dict] = [
@@ -158,6 +162,109 @@ TOOLS: list[dict] = [
             "required": ["query"],
         },
     },
+    {
+        "name": "extract_claims",
+        "description": (
+            "PURPOSE: Split text into independently checkable ATOMIC factual claims — "
+            "the cheap first step of a verification loop (extract -> ground -> attest). "
+            "Returns {claims: [...], count, input_sha256} plus a signed receipt bound to "
+            "the input hash.\n"
+            "GUIDELINES: Call when you want to see WHICH claims a document makes before "
+            "paying to ground them, to budget a verification pass (extract everything, "
+            "then verify_claim only the claims that matter to your decision), or to prove "
+            "later exactly which claims were pulled from exactly which text (the receipt "
+            "binds both). Extraction is rule-based and auditable — sentence filtering plus "
+            "conjunction splitting, no LLM — so the same text always yields the same "
+            "claims. Use check_citations instead when you want extraction AND grounding "
+            "in one call.\n"
+            "PARAMETERS: text — the prose to decompose. max_claims — 1..50, default 20.\n"
+            "LIMITATIONS: Extracts declarative factual sentences; skips questions, "
+            "opinions, instructions, and first-person statements. Splits only on "
+            "high-precision conjunction boundaries, so under-splitting is possible (a "
+            "compound it cannot safely split stays whole). Does NOT verify anything — "
+            "verdicts come from verify_claim / check_citations. Paid per call (x402), "
+            "cheapest tool on this server.\n"
+            "EXAMPLE: extract_claims({\"text\": \"Marie Curie won two Nobel Prizes and "
+            "was born in Paris.\"}) -> {count: 2, claims: [\"Marie Curie won two Nobel "
+            "Prizes\", \"was born in Paris.\"]}"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string",
+                         "description": "The text to split into independently checkable "
+                                        "atomic factual claims."},
+                "max_claims": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20,
+                               "description": "Max claims to return (1-50)."},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "attest_delivery",
+        "description": (
+            "PURPOSE: Neutral delivery verification for agentic commerce. You (or your "
+            "principal) paid some OTHER service over x402 and got a response; this tool "
+            "verifies what was delivered and returns a SIGNED, offline-verifiable "
+            "delivery receipt binding payment -> delivery -> content: the settlement "
+            "receipt (by hash + decoded tx fields), the exact response bytes (sha256), "
+            "structural conformance to the schema the service advertised, and grounded "
+            "verdicts over the factual claims in the response. Returns delivery_verdict "
+            "(consistent | degraded | inconsistent | unverifiable) with a rationale.\n"
+            "GUIDELINES: Call AFTER a paid third-party call whose output you will act on "
+            "or account for — data enrichment you bought, research you commissioned, any "
+            "x402 purchase your principal will audit. Branch on delivery_verdict: "
+            "'consistent' -> proceed; 'degraded' -> use with caution, flag the refuted "
+            "claims; 'inconsistent' -> do not rely on the delivery, keep the receipt as "
+            "dispute evidence; 'unverifiable' -> nothing contradicted but nothing "
+            "confirmed. Save the full response JSON — it is a self-contained dispute "
+            "artifact verifiable offline months later (GET /attest/pubkey documents "
+            "how).\n"
+            "PARAMETERS: service — URL/name of the paid service. response_text — the "
+            "delivered payload, verbatim. request_text (optional) — what was asked. "
+            "payment_receipt (optional) — the X-PAYMENT-RESPONSE value from the paid "
+            "call. advertised_schema (optional) — the JSON schema the service advertised. "
+            "max_claims — 1..20, default 8.\n"
+            "LIMITATIONS: Judges CONSISTENCY (as-advertised, not contradicted), never "
+            "service quality. Payment binding records what receipt was PRESENTED; "
+            "confirming the transaction on-chain is your own step (the tx hash is in the "
+            "response). Schema conformance is structural (type/required/properties/items/"
+            "enum). Content checking has the same source-coverage limits as verify_claim. "
+            "Paid per call (x402).\n"
+            "EXAMPLE: attest_delivery({\"service\": \"https://api.vendor.xyz/enrich\", "
+            "\"response_text\": \"{\\\"name\\\": \\\"APPLE INC\\\"}\", "
+            "\"payment_receipt\": \"<X-PAYMENT-RESPONSE>\", \"advertised_schema\": "
+            "{\"type\": \"object\", \"required\": [\"name\"]}}) -> {delivery_verdict: "
+            "'consistent', payment: {bound: true, transaction: '0x…'}, attestation: {…}}"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "service": {"type": "string",
+                            "description": "URL (or name) of the paid service whose "
+                                           "delivery is being verified."},
+                "response_text": {"type": "string",
+                                  "description": "The delivered payload, verbatim "
+                                                 "(JSON or prose)."},
+                "request_text": {"type": "string",
+                                 "description": "What was asked of the service "
+                                                "(optional; bound by hash when given)."},
+                "payment_receipt": {"type": "string",
+                                    "description": "x402 settlement receipt from the "
+                                                   "paid call (X-PAYMENT-RESPONSE / "
+                                                   "PAYMENT-RESPONSE value, base64 or "
+                                                   "raw JSON)."},
+                "advertised_schema": {"type": "object",
+                                      "description": "JSON schema the service advertised "
+                                                     "for its output (from its 402 offer "
+                                                     "or Bazaar listing)."},
+                "max_claims": {"type": "integer", "minimum": 1, "maximum": 20, "default": 8,
+                               "description": "Max claims in the delivered content to "
+                                              "ground (1-20)."},
+            },
+            "required": ["service", "response_text"],
+        },
+    },
 ]
 
 
@@ -219,14 +326,18 @@ def _handle_initialize(msg_id: Any, params: dict) -> dict:
         "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
         "instructions": (
             "Ground claims before asserting them (verify_claim), verify a whole draft "
-            "(check_citations), and resolve which security a claim is about "
-            "(resolve_instrument). Unlike a bare fact-checker, every answer is built to "
-            "be ACTED ON programmatically: a `sufficiency` tag tells you when to abstain "
-            "or escalate, a conformal `guarantee` gives a distribution-free error bound "
-            "you can gate decisions on, compound claims are decomposed so a false part "
-            "can't hide, and a signed `provenance` receipt binds the exact evidence and "
-            "model route so you can prove to your principal how the answer was reached. "
-            "Paid tools answer 402 with an x402 offer. "
+            "(check_citations), resolve which security a claim is about "
+            "(resolve_instrument), split text into checkable atomic claims cheaply "
+            "(extract_claims), and — when you PAY another service over x402 — verify "
+            "what it delivered and get a signed delivery receipt binding payment to "
+            "delivery to grounded content (attest_delivery), a neutral accountability "
+            "trail for agentic commerce. Unlike a bare fact-checker, every answer is "
+            "built to be ACTED ON programmatically: a `sufficiency` tag tells you when "
+            "to abstain or escalate, a conformal `guarantee` gives a distribution-free "
+            "error bound you can gate decisions on, compound claims are decomposed so a "
+            "false part can't hide, and a signed `provenance` receipt binds the exact "
+            "evidence and model route so you can prove to your principal how the answer "
+            "was reached. Paid tools answer 402 with an x402 offer. "
             "Sibling servers from the same lab: for US money-market stress readings "
             "use Seiche at https://api.seiche.info/mcp; for bank and lender failure "
             "risk (Indian institutions live, plus the US and European failure "

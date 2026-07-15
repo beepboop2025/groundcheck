@@ -51,10 +51,11 @@ def test_initialize_declares_tools_capability(client):
     assert res["protocolVersion"] == "2025-06-18"
 
 
-def test_tools_list_advertises_all_three(client):
+def test_tools_list_advertises_all_five(client):
     r = client.post("/mcp", json={**RPC, "method": "tools/list"})
     names = {t["name"] for t in r.json()["result"]["tools"]}
-    assert names == {"verify_claim", "check_citations", "resolve_instrument"}
+    assert names == {"verify_claim", "check_citations", "resolve_instrument",
+                     "extract_claims", "attest_delivery"}
 
 
 def test_ping_and_empty_capabilities(client):
@@ -84,7 +85,8 @@ def test_batch_is_capped(client):
 def test_get_describes_the_endpoint(client):
     body = client.get("/mcp").json()
     assert body["transport"] == "streamable-http"
-    assert set(body["paid_tools"]) == {"check_citations", "resolve_instrument"}
+    assert set(body["paid_tools"]) == {"check_citations", "resolve_instrument",
+                                       "extract_claims", "attest_delivery"}
 
 
 # ---- tools ---------------------------------------------------------------------

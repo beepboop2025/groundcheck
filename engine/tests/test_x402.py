@@ -198,9 +198,11 @@ def test_manifest_lists_paid_resources(client, monkeypatch):
     assert m["x402Versions"] == [1, 2]
     assert m["payTo"].endswith("dEaD")
     by_path = {r["path"]: r for r in m["resources"]}
-    assert set(by_path) == {"/check", "/resolve"}
+    assert set(by_path) == {"/check", "/resolve", "/extract", "/attest-delivery"}
     assert by_path["/check"]["priceUSD"] == 0.02
     assert by_path["/resolve"]["priceUSD"] == 0.005
+    assert by_path["/extract"]["priceUSD"] == 0.005
+    assert by_path["/attest-delivery"]["priceUSD"] == 0.05
     for res in by_path.values():
         assert {a["network"] for a in res["accepts"]} == {"eip155:8453"}
     assert "/verify" in m["alwaysFree"]

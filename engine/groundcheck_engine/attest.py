@@ -233,6 +233,57 @@ def build_check_manifest(response: dict, signed_at: str, input_sha256: str) -> d
     }
 
 
+def build_delivery_manifest(response: dict, signed_at: str) -> dict:
+    """Manifest for one /attest-delivery response — the accountable linkage
+    between an agent's payment and a service's outcome. Binds the payment
+    receipt hash, the delivered bytes (response_sha256), the conformance
+    result, and the grounded per-claim verdicts, so a saved response JSON is
+    a self-contained, offline-verifiable delivery receipt for disputes."""
+    grounding = response.get("grounding") or {}
+    conformance = response.get("conformance") or {}
+    payment = response.get("payment") or {}
+    return {
+        "service": response["service"],
+        "delivery_verdict": response["delivery_verdict"],
+        "response_sha256": response["response_sha256"],
+        "request_sha256": response.get("request_sha256"),
+        "claims": [
+            {"claim_sha256": sha256_text(r["claim"]),
+             "verdict": r["verdict"],
+             "confidence": r["confidence"]}
+            for r in grounding.get("report", [])
+        ],
+        "conformance": {
+            "checked": conformance.get("checked", False),
+            "valid": conformance.get("valid"),
+            "problems": list(conformance.get("problems", [])),
+        },
+        "payment": {
+            "bound": payment.get("bound", False),
+            "receipt_sha256": payment.get("receipt_sha256"),
+            "network": payment.get("network"),
+            "transaction": payment.get("transaction"),
+            "success": payment.get("success"),
+        },
+        "model": response.get("classifier", ""),
+        "backend": response.get("backend", ""),
+        "signed_at": signed_at,
+    }
+
+
+def build_extract_manifest(response: dict, signed_at: str) -> dict:
+    """Manifest for one /extract response: the input hash and the ordered
+    hashes of the extracted claims — enough to prove later exactly which
+    claims were pulled from exactly which text."""
+    return {
+        "input_sha256": response["input_sha256"],
+        "count": response["count"],
+        "claim_sha256s": [sha256_text(c) for c in response.get("claims", [])],
+        "method": response.get("method", ""),
+        "signed_at": signed_at,
+    }
+
+
 _NOTE = ("Ed25519 receipt over a deterministic manifest of this response. "
          "Verify offline: GET /attest/pubkey for the message format and a "
          "worked example, or docs/attested-receipts.md in the repo.")
@@ -268,6 +319,24 @@ def attest_check_response(response: dict, input_text: str) -> dict:
         return {"attested": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 
+def attest_delivery_response(response: dict) -> dict:
+    """Attestation field for an /attest-delivery response. Never raises."""
+    try:
+        return _attestation("delivery", build_delivery_manifest(response, _now()))
+    except Exception as exc:
+        logger.warning("attest: could not sign delivery response: %s", exc)
+        return {"attested": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+
+def attest_extract_response(response: dict) -> dict:
+    """Attestation field for an /extract response. Never raises."""
+    try:
+        return _attestation("extract", build_extract_manifest(response, _now()))
+    except Exception as exc:
+        logger.warning("attest: could not sign extract response: %s", exc)
+        return {"attested": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+
 def verify_attested_response(kind: str, response: dict) -> dict:
     """Convenience for holders of a full response JSON: rebuild the manifest
     from the response + receipt and verify. Pure, offline."""
@@ -283,6 +352,10 @@ def verify_attested_response(kind: str, response: dict) -> dict:
     elif kind == "check":
         manifest = build_check_manifest(response, signed_at,
                                         att.get("input_sha256", ""))
+    elif kind == "delivery":
+        manifest = build_delivery_manifest(response, signed_at)
+    elif kind == "extract":
+        manifest = build_extract_manifest(response, signed_at)
     else:
         return {"valid": False, "problems": [f"unknown kind {kind!r}"]}
     return verify_receipt(kind, manifest, receipt)

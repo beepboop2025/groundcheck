@@ -53,6 +53,11 @@ CALIBRATION_PATH = os.getenv(
 X402_PRICES_USD = {
     "/check": float(os.getenv("GROUNDCHECK_X402_PRICE_CHECK", "0.02")),
     "/resolve": float(os.getenv("GROUNDCHECK_X402_PRICE_RESOLVE", "0.005")),
+    # Granular verification-loop pricing (StableEnrich pattern): extract cheap,
+    # ground per document, buy the full delivery attestation as the bundle.
+    "/extract": float(os.getenv("GROUNDCHECK_X402_PRICE_EXTRACT", "0.005")),
+    "/attest-delivery": float(
+        os.getenv("GROUNDCHECK_X402_PRICE_ATTEST_DELIVERY", "0.05")),
 }
 # Free /check calls per IP per UTC day before a 402 is returned (0 = none).
 # Best-effort per warm serverless instance, same caveat as the rate limiter.

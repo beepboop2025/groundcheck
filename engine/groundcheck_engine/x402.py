@@ -107,6 +107,47 @@ def _atomic(usd: float) -> str:
     return str(int(round(usd * 10 ** _ASSET_DECIMALS)))
 
 
+# What each paid endpoint advertises in its 402 offer / Bazaar listing.
+# Vocabulary is deliberate (per the 2026-07 demand audit): enrichment,
+# grounding, attested, machine-verified, delivery receipts — never
+# "fact-check". Each entry must stay under CDP's 500-char settle limit.
+_DESCRIPTIONS = {
+    "/check": (
+        "Claim grounding and citation attestation for AI agents: verified "
+        "enrichment that adds a veracity field to text. Each factual claim is "
+        "grounded against live web sources (Wikipedia + world news) and returned "
+        "with a machine-verified verdict (supported/refuted/unverified), a "
+        "confidence score, and cited sources. Refuses to guess on conflicting "
+        "evidence. Built for research agents that must cite, citation-locked "
+        "content, and compliance checks."
+    ),
+    "/resolve": (
+        "Attested instrument-identity enrichment for AI agents: map a "
+        "ticker, ISIN, CUSIP, SEDOL, FIGI, or instrument name to canonical "
+        "FIGI records (name, security type, market sector, exchange) via "
+        "Bloomberg open symbology, with provenance (source, retrieval "
+        "time) attached to every answer. Built for agents that must know "
+        "WHICH security a claim, order, or document is about before acting "
+        "on it."
+    ),
+    "/extract": (
+        "Claim extraction for agent verification loops: split text into "
+        "independently checkable atomic factual claims via auditable "
+        "rule-based decomposition (no LLM guessing), with a signed receipt "
+        "bound to the input hash. The cheap first step of the loop — extract "
+        "here, then ground what matters via /verify or /check."
+    ),
+    "/attest-delivery": (
+        "Signed delivery receipts for agentic commerce: submit what a paid "
+        "service returned (plus its x402 settlement receipt and advertised "
+        "schema) and receive an offline-verifiable Ed25519 attestation "
+        "binding payment to delivery to grounded content — schema "
+        "conformance, machine-verified claim verdicts, and a neutral "
+        "accountability trail for disputes between agents and the services "
+        "they pay."
+    ),
+}
+
 # Bazaar cataloging metadata, embedded in the 402 per the CDP discovery layer's
 # observed convention ("extensions.bazaar on the 402"): route + example I/O +
 # input schema. This is what makes the endpoint indexable/searchable by agents
@@ -199,6 +240,112 @@ _BAZAAR_EXTENSIONS = {
             },
         }
     },
+    "/extract": {
+        "bazaar": {
+            "routeTemplate": "/extract",
+            "info": {
+                "input": {
+                    "type": "http", "method": "POST", "bodyType": "json",
+                    "body": {
+                        "text": "The Eiffel Tower was completed in 1889 and "
+                                "is 330 metres tall.",
+                        "max_claims": 20,
+                    },
+                },
+                "output": {
+                    "type": "json",
+                    "example": {
+                        "count": 2,
+                        "claims": [
+                            "The Eiffel Tower was completed in 1889",
+                            "is 330 metres tall.",
+                        ],
+                        "method": "sentence-heuristic + rule-based atom "
+                                  "decomposition",
+                        "input_sha256": "…64 hex…",
+                        "attestation": {"attested": True, "receipt": {"…": "…"}},
+                    },
+                },
+            },
+            "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "minLength": 1,
+                             "description": "Text to split into independently "
+                                            "checkable atomic factual claims"},
+                    "max_claims": {"type": "integer", "minimum": 1, "maximum": 50},
+                },
+                "required": ["text"],
+            },
+        }
+    },
+    "/attest-delivery": {
+        "bazaar": {
+            "routeTemplate": "/attest-delivery",
+            "info": {
+                "input": {
+                    "type": "http", "method": "POST", "bodyType": "json",
+                    "body": {
+                        "service": "https://api.example-data-service.xyz/enrich",
+                        "response_text": "{\"figi\": \"BBG000B9XRY4\", "
+                                         "\"name\": \"APPLE INC\"}",
+                        "payment_receipt": "<X-PAYMENT-RESPONSE value>",
+                        "advertised_schema": {
+                            "type": "object",
+                            "required": ["figi", "name"],
+                        },
+                    },
+                },
+                "output": {
+                    "type": "json",
+                    "example": {
+                        "service": "https://api.example-data-service.xyz/enrich",
+                        "delivery_verdict": "consistent",
+                        "rationale": "no refuted claims; 1 claim(s) supported "
+                                     "by evidence and the advertised schema "
+                                     "validates",
+                        "response_sha256": "…64 hex…",
+                        "grounding": {"checked": 1, "supported": 1,
+                                      "refuted": 0, "unverified": 0},
+                        "conformance": {"checked": True, "valid": True,
+                                        "problems": []},
+                        "payment": {"bound": True, "network": "base",
+                                    "transaction": "0x…", "success": True},
+                        "attestation": {"attested": True, "receipt": {"…": "…"}},
+                    },
+                },
+            },
+            "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "service": {"type": "string", "minLength": 1,
+                                "description": "URL (or name) of the paid "
+                                               "service whose delivery is "
+                                               "being verified"},
+                    "response_text": {"type": "string", "minLength": 1,
+                                      "description": "The delivered payload, "
+                                                     "verbatim (JSON or prose)"},
+                    "request_text": {"type": "string",
+                                     "description": "What was asked of the "
+                                                    "service (optional; bound "
+                                                    "by hash when given)"},
+                    "payment_receipt": {"type": "string",
+                                        "description": "x402 settlement receipt "
+                                                       "from the paid call "
+                                                       "(X-PAYMENT-RESPONSE "
+                                                       "value, base64 or JSON)"},
+                    "advertised_schema": {"type": "object",
+                                          "description": "JSON schema the "
+                                                         "service advertised "
+                                                         "for its output"},
+                    "max_claims": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+                "required": ["service", "response_text"],
+            },
+        }
+    },
 }
 
 
@@ -207,28 +354,9 @@ def _requirements(path: str, resource: str, network: str) -> dict:
     usd = price_usd(path)
     if usd is None:
         raise ValueError(f"endpoint {path!r} has no x402 price")
-    # CDP rejects verify/settle when description > 500 chars; keep it tight and
-    # hard-guard the length so a future edit can't silently break mainnet.
-    if path == "/resolve":
-        description = (
-            "Attested instrument-identity enrichment for AI agents: map a "
-            "ticker, ISIN, CUSIP, SEDOL, FIGI, or instrument name to canonical "
-            "FIGI records (name, security type, market sector, exchange) via "
-            "Bloomberg open symbology, with provenance (source, retrieval "
-            "time) attached to every answer. Built for agents that must know "
-            "WHICH security a claim, order, or document is about before acting "
-            "on it."
-        )[:500]
-    else:
-        description = (
-            "Claim grounding and citation attestation for AI agents: verified "
-            "enrichment that adds a veracity field to text. Each factual claim is "
-            "grounded against live web sources (Wikipedia + world news) and returned "
-            "with a machine-verified verdict (supported/refuted/unverified), a "
-            "confidence score, and cited sources. Refuses to guess on conflicting "
-            "evidence. Built for research agents that must cite, citation-locked "
-            "content, and compliance checks."
-        )[:500]
+    # CDP rejects verify/settle when description > 500 chars; keep these tight
+    # and hard-guard the length so a future edit can't silently break mainnet.
+    description = (_DESCRIPTIONS.get(path) or _DESCRIPTIONS["/check"])[:500]
     reqs = {
         "scheme": "exact",
         "network": network,
@@ -289,7 +417,7 @@ def _resource_info(path: str, resource: str) -> dict:
         mime_type="application/json",
         service_name="Groundcheck",
         tags=["enrichment", "grounding", "citations", "verified-data",
-              "agent-tools"],
+              "agent-tools", "delivery-receipts", "agentic-commerce"],
         icon_url="https://groundcheck.seiche.info/favicon.ico",
     ).model_dump(mode="json", by_alias=True, exclude_none=True)
 
@@ -468,13 +596,18 @@ def manifest(base_url: str) -> dict:
     return {
         "x402Versions": [1, 2],
         "service": "groundcheck",
-        "description": "Claim grounding & citation attestation for AI agents — "
-                       "verified enrichment with machine-verified verdicts, "
-                       "confidence scores, and cited sources. Free single-claim "
-                       "grounding; machine-payable batch document attestation.",
+        "description": "Verification layer for agentic commerce — claim "
+                       "grounding, citation attestation, and signed delivery "
+                       "receipts that bind an x402 payment to what the paid "
+                       "service actually delivered. Free single-claim "
+                       "grounding; machine-payable document attestation, "
+                       "claim extraction, and third-party delivery "
+                       "verification, every answer offline-verifiable.",
         "tags": ["enrichment", "grounding", "citations", "attested",
                  "machine-verified", "verified-data", "research",
-                 "agent-tools", "claim-verification"],
+                 "agent-tools", "claim-verification", "delivery-verification",
+                 "delivery-receipts", "agentic-commerce",
+                 "payment-accountability"],
         "payTo": _env("GROUNDCHECK_X402_PAY_TO"),
         "network": {"name": name, "caip2": caip2},
         "asset": _asset(),

@@ -6,10 +6,13 @@ Endpoints:
   GET  /search?q=&n=  the documented GROUNDCHECK_SEARCH_URL contract ({results:[...]})
   POST /verify      retrieve -> classify stance -> verdict for one claim
   POST /check       extract claims from text and verify each
+  POST /extract     claim extraction only (the cheap step of the loop)
+  POST /attest-delivery  signed delivery receipt for a third-party paid exchange
   GET  /attest/pubkey  Ed25519 public key + how to verify response receipts
-  GET/POST /mcp     streamable-HTTP MCP transport (the 3 tools, by URL)
+  GET/POST /mcp     streamable-HTTP MCP transport (the 5 tools, by URL)
 """
 import asyncio
+import json
 import re
 import time
 from collections import Counter, OrderedDict, defaultdict, deque
@@ -20,17 +23,20 @@ from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import atoms, attest, config, conformal, ensemble, instruments, mcp_http, provenance, x402
+from . import (atoms, attest, config, conformal, delivery, ensemble,
+               instruments, mcp_http, provenance, x402)
 from .landing import LANDING_HTML
 from .models import (AtomReport, CheckResult, ClaimInstrument, ClaimReport,
-                     Guarantee, ResolveResult, Source, VerifyResult)
+                     DeliveryConformance, DeliveryGrounding, DeliveryPayment,
+                     DeliveryResult, ExtractResult, Guarantee, ResolveResult,
+                     Source, VerifyResult)
 from .retrieval import Retriever
 from .stance import classify_stances
 from .verdict import compute_verdict
 
 app = FastAPI(
     title="Groundcheck Engine",
-    version="0.5.0",
+    version="0.6.0",
     contact={
         "name": "Groundcheck",
         "url": "https://github.com/beepboop2025/groundcheck",
@@ -70,7 +76,12 @@ def _custom_openapi() -> dict:
         "verdicts (supported/refuted/unverified), confidence scores, and "
         "cited sources. POST /resolve with {query} to map a ticker/ISIN/"
         "CUSIP/FIGI/name to canonical instrument identity with provenance "
-        "(x402 paid, same free quota)."
+        "(x402 paid, same free quota). POST /extract with {text} for claim "
+        "extraction alone (x402 paid, cheapest step of the loop). POST "
+        "/attest-delivery with {service, response_text, payment_receipt?, "
+        "advertised_schema?} to verify what a PAID third-party service "
+        "delivered and receive a signed, offline-verifiable delivery receipt "
+        "binding payment to delivery to grounded content (x402 paid)."
     )
     schemes = schema.setdefault("components", {}).setdefault("securitySchemes", {})
     schemes["x402"] = {
@@ -255,6 +266,33 @@ class ResolveRequest(BaseModel):
         None, description="TICKER | ID_ISIN | ID_CUSIP | ID_SEDOL | ID_BB_GLOBAL; "
                           "auto-detected from the value's shape when omitted")
     max_results: int = Field(5, ge=1, le=10)
+
+
+class AttestDeliveryRequest(BaseModel):
+    """A third-party paid exchange to verify and attest (delivery.py)."""
+    service: str = Field(min_length=1, max_length=500,
+                         description="URL (or name) of the paid service whose "
+                                     "delivery is being verified")
+    response_text: str = Field(
+        min_length=1, max_length=100_000,
+        description="The delivered payload, verbatim (JSON or prose)")
+    request_text: str | None = Field(
+        None, max_length=10_000,
+        description="What was asked of the service (bound by hash when given)")
+    payment_receipt: str | None = Field(
+        None, max_length=16_384,
+        description="The x402 settlement receipt from the paid call "
+                    "(X-PAYMENT-RESPONSE / PAYMENT-RESPONSE value, base64 or "
+                    "raw JSON); bound by hash into the attestation")
+    advertised_schema: dict | None = Field(
+        None, description="JSON schema the service advertised for its output "
+                          "(from its 402 offer or Bazaar listing)")
+    max_claims: int = Field(8, ge=1, le=20)
+
+
+class ExtractRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=100_000)
+    max_claims: int = Field(20, ge=1, le=50)
 
 
 def _extract_claims(text: str, max_claims: int) -> List[str]:
@@ -556,10 +594,28 @@ async def _mcp_resolve_instrument(query: str, id_type: str | None = None,
     return r.model_dump()
 
 
+async def _mcp_extract_claims(text: str, max_claims: int = 20) -> dict:
+    return _extract_result(text, max(1, min(int(max_claims), 50))).model_dump()
+
+
+async def _mcp_attest_delivery(service: str, response_text: str,
+                               request_text: str | None = None,
+                               payment_receipt: str | None = None,
+                               advertised_schema: dict | None = None,
+                               max_claims: int = 8) -> dict:
+    req = AttestDeliveryRequest(
+        service=service, response_text=response_text, request_text=request_text,
+        payment_receipt=payment_receipt, advertised_schema=advertised_schema,
+        max_claims=max(1, min(int(max_claims), 20)))
+    return (await _attest_delivery_result(req)).model_dump()
+
+
 _MCP_HANDLERS = {
     "verify_claim": _mcp_verify_claim,
     "check_citations": _mcp_check_citations,
     "resolve_instrument": _mcp_resolve_instrument,
+    "extract_claims": _mcp_extract_claims,
+    "attest_delivery": _mcp_attest_delivery,
 }
 
 
@@ -666,3 +722,102 @@ async def check(req: CheckRequest, response: Response) -> CheckResult:
     result, hits = await _check_text(req.text, req.max_claims)
     response.headers["X-Groundcheck-Cache-Hits"] = str(hits)
     return result
+
+
+def _extract_atomic(text: str, max_claims: int) -> List[str]:
+    """Checkable sentences, decomposed to atoms when splitting is safe. Same
+    front-end /check uses, exposed as its own (cheap) product step."""
+    out: List[str] = []
+    for claim in _extract_claims(text, max_claims):
+        out.extend(atoms.decompose(claim) if config.DECOMPOSE else [claim])
+        if len(out) >= max_claims:
+            break
+    return out[:max_claims]
+
+
+def _extract_result(text: str, max_claims: int) -> ExtractResult:
+    """Shared by POST /extract and the MCP tool."""
+    claims = _extract_atomic(text, max_claims)
+    result = ExtractResult(
+        count=len(claims), claims=claims,
+        method="sentence-heuristic + rule-based atom decomposition"
+               if config.DECOMPOSE else "sentence-heuristic",
+        input_sha256=attest.sha256_text(text),
+    )
+    result.attestation = attest.attest_extract_response(result.model_dump())
+    return result
+
+
+@app.post("/extract", response_model=ExtractResult)
+async def extract(req: ExtractRequest) -> ExtractResult:
+    """Claim extraction only — the $0.005 step of the verification loop
+    (extract -> ground -> attest). Rule-based and auditable; no LLM."""
+    return _extract_result(req.text, req.max_claims)
+
+
+async def _attest_delivery_result(req: AttestDeliveryRequest) -> DeliveryResult:
+    """Shared by POST /attest-delivery and the MCP tool: ground the delivered
+    content, check advertised-schema conformance, bind the payment receipt,
+    and sign the whole judgment (attest.py kind "delivery")."""
+    check_result, _hits = await _check_text(req.response_text, req.max_claims)
+    tally = Counter(r.verdict for r in check_result.report)
+    confidences = [r.confidence for r in check_result.report]
+    grounding = DeliveryGrounding(
+        checked=check_result.checked,
+        supported=tally.get("supported", 0),
+        refuted=tally.get("refuted", 0),
+        unverified=tally.get("unverified", 0),
+        mean_confidence=round(sum(confidences) / len(confidences), 4)
+                        if confidences else None,
+        report=check_result.report,
+    )
+
+    if req.advertised_schema is not None:
+        try:
+            instance = json.loads(req.response_text)
+        except ValueError:
+            conformance = DeliveryConformance(
+                checked=True, valid=False,
+                problems=["a JSON schema was advertised but the delivered "
+                          "payload is not valid JSON"])
+        else:
+            problems = delivery.conformance_problems(instance,
+                                                     req.advertised_schema)
+            conformance = DeliveryConformance(checked=True,
+                                              valid=not problems,
+                                              problems=problems)
+    else:
+        conformance = DeliveryConformance(checked=False)
+
+    if req.payment_receipt:
+        decoded, problems = delivery.decode_settlement(req.payment_receipt)
+        fields = delivery.settlement_fields(decoded)
+        payment = DeliveryPayment(
+            bound=decoded is not None,
+            receipt_sha256=attest.sha256_text(req.payment_receipt),
+            problems=problems, **fields)
+    else:
+        payment = DeliveryPayment(bound=False)
+
+    verdict, rationale = delivery.derive_verdict(
+        grounding.supported, grounding.refuted, grounding.unverified,
+        conformance.checked, conformance.valid)
+
+    result = DeliveryResult(
+        service=req.service, delivery_verdict=verdict, rationale=rationale,
+        response_sha256=attest.sha256_text(req.response_text),
+        request_sha256=attest.sha256_text(req.request_text)
+                       if req.request_text else None,
+        grounding=grounding, conformance=conformance, payment=payment,
+        backend=check_result.backend, classifier=check_result.classifier,
+    )
+    result.attestation = attest.attest_delivery_response(result.model_dump())
+    return result
+
+
+@app.post("/attest-delivery", response_model=DeliveryResult)
+async def attest_delivery(req: AttestDeliveryRequest) -> DeliveryResult:
+    """Neutral delivery verification for agentic commerce: a signed,
+    offline-verifiable receipt binding an x402 payment to what the paid
+    service actually delivered (delivery.py has the judgment rules)."""
+    return await _attest_delivery_result(req)
