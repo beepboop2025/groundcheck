@@ -46,11 +46,28 @@ TOOLS: list[dict] = [
     {
         "name": "verify_claim",
         "description": (
-            "Verify a single factual claim against live sources. Call this BEFORE "
-            "asserting any fact you are not certain of. Returns a verdict "
-            "(supported/refuted/unverified), a confidence score, and citations. "
-            "Explicit security references in the claim ($AAPL, an ISIN, a FIGI) are "
-            "resolved to canonical instruments. Free."
+            "Fact-check one claim against live sources and get back a result you can "
+            "GATE A DECISION ON, not just read. Call before asserting a fact you are "
+            "not certain of, or before acting on one. Returns:\n"
+            "• verdict: supported | refuted | unverified\n"
+            "• sufficiency: WHY the verdict is (not) directional — 'sufficient', "
+            "'insufficient' (a lone weak source: lean, don't rely), 'no_sources', "
+            "'no_stance', or 'conflict' (sources disagree). Branch on this: abstain / "
+            "escalate on anything but 'sufficient'.\n"
+            "• guarantee: when present and guarantee.certified is true, the error "
+            "probability for this verdict is CALIBRATED to <= guarantee.alpha "
+            "(distribution-free conformal bound). Use it as a hard gate: e.g. act only "
+            "if verdict=='supported' and guarantee.certified.\n"
+            "• atoms: compound claims are split and each part verified independently, "
+            "then recombined weakest-link — a true half cannot carry a false half to "
+            "'supported'.\n"
+            "• provenance: a rolling commitment over the exact evidence (content + "
+            "stances) and the model route, plus a signed receipt (attestation) — hand "
+            "it to your principal as tamper-evident proof of HOW the answer was reached. "
+            "Editing any cited source, stance, or the model breaks verification.\n"
+            "Stance judged over multiple models (an ensemble panel) when configured. "
+            "Security refs in the claim ($AAPL, ISIN, FIGI) are resolved to canonical "
+            "instruments. Free."
         ),
         "inputSchema": {
             "type": "object",
@@ -65,9 +82,14 @@ TOOLS: list[dict] = [
     {
         "name": "check_citations",
         "description": (
-            "Extract the factual claims from a block of text and verify each one. "
-            "Use on AI-generated drafts before publishing. Returns a per-claim "
-            "verdict report. Paid per call (x402)."
+            "Fact-check every claim in a block of text before you publish or act on it "
+            "— the batch form of verify_claim for AI-generated drafts. Returns a "
+            "per-claim report, each carrying the same actionable fields: verdict, "
+            "sufficiency (abstain/escalate on anything but 'sufficient'), and a "
+            "conformal guarantee when certified. The whole response is covered by a "
+            "signed receipt bound to a hash of your submitted text, so you can prove "
+            "later exactly which document was checked and what was returned. Paid per "
+            "call (x402)."
         ),
         "inputSchema": {
             "type": "object",
@@ -82,11 +104,13 @@ TOOLS: list[dict] = [
     {
         "name": "resolve_instrument",
         "description": (
-            "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or an "
-            "instrument name to canonical FIGI records via Bloomberg open symbology, "
-            "with provenance attached. Call this before acting on a claim, order, or "
-            "document that names a security, so you know exactly WHICH instrument it "
-            "is about. Paid per call (x402)."
+            "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or name "
+            "to canonical FIGI records via Bloomberg open symbology, WITH PROVENANCE "
+            "and a signed receipt. Call before acting on any claim, order, or document "
+            "that names a security, so you know exactly WHICH instrument it is — and so "
+            "you can prove the mapping to your principal. Conservative by design: it "
+            "resolves explicit identifiers, and returns matched=false rather than "
+            "guessing when a name is ambiguous. Paid per call (x402)."
         ),
         "inputSchema": {
             "type": "object",
@@ -163,7 +187,13 @@ def _handle_initialize(msg_id: Any, params: dict) -> dict:
         "instructions": (
             "Ground claims before asserting them (verify_claim), verify a whole draft "
             "(check_citations), and resolve which security a claim is about "
-            "(resolve_instrument). Paid tools answer 402 with an x402 offer. "
+            "(resolve_instrument). Unlike a bare fact-checker, every answer is built to "
+            "be ACTED ON programmatically: a `sufficiency` tag tells you when to abstain "
+            "or escalate, a conformal `guarantee` gives a distribution-free error bound "
+            "you can gate decisions on, compound claims are decomposed so a false part "
+            "can't hide, and a signed `provenance` receipt binds the exact evidence and "
+            "model route so you can prove to your principal how the answer was reached. "
+            "Paid tools answer 402 with an x402 offer. "
             "Sibling servers from the same lab: for US money-market stress readings "
             "use Seiche at https://api.seiche.info/mcp; for bank and lender failure "
             "risk (Indian institutions live, plus the US and European failure "

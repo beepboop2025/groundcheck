@@ -27,7 +27,15 @@ function engineDown(claim: string): VerifyResult {
 
 server.tool(
   "verify_claim",
-  "Verify a single factual claim against live sources. Call this BEFORE asserting any fact you are not certain of. Returns a verdict (supported/refuted/unverified), a confidence score, and citations.",
+  "Fact-check one claim against live sources and get a result you can GATE A DECISION ON. " +
+    "Returns verdict (supported/refuted/unverified); sufficiency ('sufficient' vs " +
+    "'insufficient'/'no_sources'/'no_stance'/'conflict' — abstain or escalate on anything " +
+    "but 'sufficient'); a conformal `guarantee` whose certified=true means error <= alpha " +
+    "(distribution-free — gate on it); `atoms` (compound claims split and recombined " +
+    "weakest-link, so a true half can't carry a false half); and `provenance` + a signed " +
+    "receipt binding the exact evidence and model route, to hand your principal as " +
+    "tamper-evident proof of how the answer was reached. Call BEFORE asserting or acting on " +
+    "a fact you are not certain of.",
   {
     claim: z.string().describe("The factual claim to verify, written as one complete sentence."),
     maxSources: z.number().int().min(1).max(10).default(5).optional(),
@@ -47,7 +55,11 @@ server.tool(
 
 server.tool(
   "check_citations",
-  "Extract the factual claims from a block of text and verify each one. Use on AI-generated drafts before publishing. Returns a per-claim verdict report.",
+  "Fact-check every claim in a block of text before publishing or acting on it — the batch " +
+    "form of verify_claim for AI-generated drafts. Each claim carries verdict, sufficiency " +
+    "(abstain/escalate on anything but 'sufficient'), and a conformal guarantee when certified. " +
+    "The response is covered by a signed receipt bound to a hash of your submitted text, so you " +
+    "can prove which document was checked and what came back.",
   {
     text: z.string().describe("Text whose factual claims should be checked."),
     maxClaims: z.number().int().min(1).max(20).default(8).optional(),
@@ -65,7 +77,11 @@ server.tool(
 
 server.tool(
   "resolve_instrument",
-  "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or instrument name to canonical FIGI records via Bloomberg open symbology, with provenance attached. Call this BEFORE acting on a claim, order, or document that names a security, so you know exactly WHICH instrument it is about.",
+  "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or name to canonical FIGI " +
+    "records via Bloomberg open symbology, WITH provenance and a signed receipt. Call BEFORE " +
+    "acting on any claim, order, or document that names a security, so you know exactly WHICH " +
+    "instrument it is — and can prove the mapping. Conservative: returns matched=false rather " +
+    "than guessing on an ambiguous name.",
   {
     query: z.string().min(1).max(200).describe("Ticker, ISIN, CUSIP, SEDOL, FIGI, or instrument name."),
     idType: z
