@@ -20,7 +20,7 @@ from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import atoms, attest, config, conformal, ensemble, instruments, mcp_http, x402
+from . import atoms, attest, config, conformal, ensemble, instruments, mcp_http, provenance, x402
 from .landing import LANDING_HTML
 from .models import (AtomReport, CheckResult, ClaimInstrument, ClaimReport,
                      Guarantee, ResolveResult, Source, VerifyResult)
@@ -340,6 +340,10 @@ async def _verify_claim(claim: str, max_sources: int) -> Tuple[VerifyResult, boo
     else:
         result, cacheable = await _verify_atomic(claim, max_sources)
 
+    # Provenance binds the evidence path + route; the attestation then signs a
+    # manifest that includes the same evidence root, so the receipt proves HOW
+    # the verdict was reached, not only what it was.
+    result.provenance = provenance.build_provenance(result.model_dump())
     result.attestation = attest.attest_verify_response(result.model_dump())
     if cacheable:
         _cache_put(key, result)
@@ -465,7 +469,10 @@ async def attest_pubkey() -> JSONResponse:
             "manifests": {
                 "verify": "keys: backend (response.backend), claim_sha256 "
                           "(sha256 hex of response.claim, utf-8), confidence, "
-                          "model (response.classifier), signed_at "
+                          "evidence_root (rolling commitment over ordered non-stub "
+                          "evidence content+stances, = response.provenance.evidence_root), "
+                          "route_hash (model-route commitment), model "
+                          "(response.classifier), signed_at "
                           "(receipt.signed_at), source_urls "
                           "(response.sources[].url, response order), verdict",
                 "check": "keys: backend, checked, claims ([{claim_sha256, "

@@ -191,12 +191,23 @@ def verify_receipt(kind: str, manifest: dict, receipt: dict) -> dict:
 # the response JSON alone. Never sign fields that vary per-serialization.
 # ---------------------------------------------------------------------------
 def build_verify_manifest(response: dict, signed_at: str) -> dict:
-    """Manifest for one /verify (or MCP verify_claim) response."""
+    """Manifest for one /verify (or MCP verify_claim) response.
+
+    Beyond the verdict, the signature binds the EVIDENCE PATH: `evidence_root`
+    is a rolling commitment over the ordered evidence content + stances
+    (provenance.py), and `route_hash` binds the model route. Both are
+    recomputable from the response, so a third party rebuilds this manifest
+    byte-for-byte — and a swapped source, flipped stance, or silent model change
+    breaks verification. Older responses without a provenance field fall back to
+    the empty-evidence root, so verification stays consistent."""
+    from . import provenance
     return {
         "claim_sha256": sha256_text(response["claim"]),
         "verdict": response["verdict"],
         "confidence": response["confidence"],
         "source_urls": [s["url"] for s in response.get("sources", [])],
+        "evidence_root": provenance.recompute_evidence_root(response),
+        "route_hash": provenance.route_hash(response),
         "model": response.get("classifier", ""),
         "backend": response.get("backend", ""),
         "signed_at": signed_at,
@@ -285,13 +296,25 @@ VERIFY_EXAMPLE = """import hashlib, json
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 resp = json.load(open("verify_response.json"))  # the saved /verify response
 r = resp["attestation"]["receipt"]
-m = {"claim_sha256": hashlib.sha256(resp["claim"].encode()).hexdigest(),
-     "verdict": resp["verdict"], "confidence": resp["confidence"],
-     "source_urls": [s["url"] for s in resp["sources"]],
-     "model": resp["classifier"], "backend": resp["backend"],
-     "signed_at": r["signed_at"]}
+PD = "groundcheck-provenance-v1"
+def H(s): return hashlib.sha256(s.encode()).hexdigest()
+# evidence_root: rolling commitment over the ordered non-stub evidence
+roll = H(PD)
+for i, s in enumerate(x for x in resp["sources"] if not x.get("stub")):
+    leaf = H(f"{i}\\x1f{s.get('url','')}\\x1f{s.get('snippet','')}\\x1f{s.get('stance') or 'none'}")
+    roll = H(roll + leaf)
+route = {"model": resp.get("classifier",""), "backend": resp.get("backend",""),
+         "ensembled": str(resp.get("classifier","")).startswith("ensemble:"),
+         "decomposed": bool(resp.get("atoms")), "n_atoms": len(resp.get("atoms") or []),
+         "certified": bool((resp.get("guarantee") or {}).get("certified"))}
+route_hash = H(PD + "\\x1f".join(f"{k}={route[k]}" for k in sorted(route)))
+m = {"claim_sha256": H(resp["claim"]), "verdict": resp["verdict"],
+     "confidence": resp["confidence"], "source_urls": [s["url"] for s in resp["sources"]],
+     "evidence_root": roll, "route_hash": route_hash,
+     "model": resp["classifier"], "backend": resp["backend"], "signed_at": r["signed_at"]}
 h = hashlib.sha256(json.dumps(m, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 assert h == r["manifest_hash"], "manifest was modified"
+assert roll == resp["provenance"]["evidence_root"], "evidence path was tampered"
 Ed25519PublicKey.from_public_bytes(bytes.fromhex(r["public_key"])).verify(
     bytes.fromhex(r["sig"]), f"groundcheck-attest-v1:verify:{h}".encode())"""
 

@@ -83,6 +83,9 @@ export interface VerifyResult {
   // Weighted multi-model panel probability that the claim is true.
   ensemble_score?: number | null;
   guarantee?: Guarantee | null;
+  // Evidence-bound provenance: rolling commitment over the evidence path +
+  // model route, bound into the signed manifest.
+  provenance?: Record<string, unknown> | null;
   // Signed Ed25519 receipt over a deterministic subset of the response
   // (engine attest.py). Passed through verbatim; verify offline via the
   // engine's GET /attest/pubkey.

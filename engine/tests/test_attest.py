@@ -137,25 +137,34 @@ def test_verify_endpoint_returns_valid_attestation(client):
     body = r.json()
     att = body["attestation"]
     assert att["attested"] is True
+    # the manifest now also binds the evidence path (evidence_root) and the
+    # model route (route_hash) — the provenance upgrade
     assert set(att["manifest_keys"]) == {"backend", "claim_sha256", "confidence",
+                                         "evidence_root", "route_hash",
                                          "model", "signed_at", "source_urls",
                                          "verdict"}
     assert attest.verify_attested_response("verify", body)["valid"]
 
 
 def test_verify_receipt_rebuilds_from_response_alone(client):
-    # Exactly what a third party does: response JSON in, cryptography out.
+    # Exactly what a third party does: response JSON in, cryptography out,
+    # including the evidence-path and route commitments.
+    from groundcheck_engine import provenance
     body = client.post("/verify", json={"claim": CLAIM}).json()
     receipt = body["attestation"]["receipt"]
     m = {"claim_sha256": hashlib.sha256(body["claim"].encode()).hexdigest(),
          "verdict": body["verdict"], "confidence": body["confidence"],
          "source_urls": [s["url"] for s in body["sources"]],
+         "evidence_root": provenance.recompute_evidence_root(body),
+         "route_hash": provenance.route_hash(body),
          "model": body["classifier"], "backend": body["backend"],
          "signed_at": receipt["signed_at"]}
     h = hashlib.sha256(json.dumps(m, sort_keys=True,
                                   separators=(",", ":")).encode()).hexdigest()
     assert h == receipt["manifest_hash"]
     assert attest.verify_receipt("verify", m, receipt)["valid"]
+    # and the recomputed evidence root matches the one the response advertises
+    assert m["evidence_root"] == body["provenance"]["evidence_root"]
 
 
 def test_tampered_response_detected_end_to_end(client):

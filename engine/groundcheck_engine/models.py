@@ -94,6 +94,9 @@ class VerifyResult(BaseModel):
     ensemble_score: Optional[float] = None
     # Conformal guarantee; absent on uncalibrated deployments.
     guarantee: Optional[Guarantee] = None
+    # Evidence-bound provenance: rolling commitment over the evidence path +
+    # model route, bound into the signed manifest (provenance.py).
+    provenance: Optional[Dict[str, Any]] = None
     # Signed receipt over a deterministic subset of this response (attest.py).
     attestation: Optional[Dict[str, Any]] = None
 

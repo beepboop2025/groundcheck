@@ -11,11 +11,36 @@ that Groundcheck really returned that verdict at that time.
 - Groundcheck (the holder of the signing key) produced this exact verdict, with
   this confidence, over this input, citing these source URLs, at the time in
   `receipt.signed_at`.
+- **The evidence path.** The manifest binds `evidence_root`, a rolling
+  commitment over the ordered evidence — each source's URL, its exact snippet
+  text, and the stance taken on it. Swapping a source, editing a snippet,
+  flipping a stance, or reordering the evidence changes the root and the receipt
+  no longer verifies. This is the difference between "cited these URLs" and
+  "reasoned over exactly this evidence with these stances" (evidence-bound
+  provenance, arXiv:2606.22560).
+- **The model route.** The manifest binds `route_hash`, covering which model(s)
+  answered (single router vs ensemble panel), the retrieval backend, and whether
+  the claim was decomposed into atoms. A silent model or pipeline substitution
+  is caught.
 - The response was not altered afterwards. Change the verdict, the confidence,
   a source URL, or the claim itself and the manifest hash no longer matches, so
   verification fails.
 - For `/check`, the receipt is also bound to a hash of the submitted text, so
   the buyer can prove which document the report was about.
+
+### Attestation mode: software vs TEE
+
+`response.provenance.attestation_mode` says how far the binding reaches:
+
+- **`software`** (what ships): the Ed25519 operator signature covers the
+  evidence path and route. It proves the operator and the path, but not that a
+  particular runtime executed it — a compromised operator could sign a fabricated
+  path.
+- **`tee`**: the same manifest additionally covered by a hardware attestation
+  quote (AWS Nitro) binding the enclave measurement, so the path is proven to
+  have run inside an attested runtime. This is the documented upgrade; it appears
+  only when a quote is configured (`GROUNDCHECK_TEE_QUOTE`). We never report
+  `tee` without a real quote.
 
 ## What a receipt does not prove
 
@@ -56,12 +81,23 @@ Three steps, any language, any Ed25519 library:
      "backend": response.backend,
      "claim_sha256": sha256 hex of response.claim (utf-8),
      "confidence": response.confidence,
+     "evidence_root": response.provenance.evidence_root,
+     "route_hash": response.provenance.route_hash,
      "model": response.classifier,
      "signed_at": receipt.signed_at,
      "source_urls": [each response.sources[i].url, in order],
      "verdict": response.verdict
    }
    ```
+
+   Recompute `evidence_root` yourself to make the binding meaningful (don't just
+   copy it from the response): `roll = sha256("groundcheck-provenance-v1")`, then
+   for each non-stub source in order
+   `roll = sha256(roll + sha256(f"{i}\x1f{url}\x1f{snippet}\x1f{stance or 'none'}"))`.
+   It must equal `response.provenance.evidence_root`. `route_hash` is
+   `sha256("groundcheck-provenance-v1" + "\x1f".join(f"{k}={v}" for k,v in sorted(route)))`
+   over the route descriptor in `response.provenance.route`. `GET /attest/pubkey`
+   carries a full worked example.
 
    For `kind: "check"`: `backend`, `checked`, `claims` (a list of
    `{claim_sha256, verdict, confidence}` built from `response.report` in
