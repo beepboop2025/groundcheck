@@ -27,15 +27,19 @@ function engineDown(claim: string): VerifyResult {
 
 server.tool(
   "verify_claim",
-  "Fact-check one claim against live sources and get a result you can GATE A DECISION ON. " +
-    "Returns verdict (supported/refuted/unverified); sufficiency ('sufficient' vs " +
-    "'insufficient'/'no_sources'/'no_stance'/'conflict' — abstain or escalate on anything " +
-    "but 'sufficient'); a conformal `guarantee` whose certified=true means error <= alpha " +
-    "(distribution-free — gate on it); `atoms` (compound claims split and recombined " +
-    "weakest-link, so a true half can't carry a false half); and `provenance` + a signed " +
-    "receipt binding the exact evidence and model route, to hand your principal as " +
-    "tamper-evident proof of how the answer was reached. Call BEFORE asserting or acting on " +
-    "a fact you are not certain of.",
+  "PURPOSE: Fact-check one claim against live sources and return a result you can GATE A " +
+    "DECISION ON. Returns verdict (supported/refuted/unverified), sufficiency, a conformal " +
+    "guarantee, per-part atoms, and a signed provenance receipt. " +
+    "GUIDELINES: Call BEFORE asserting or acting on a fact you are unsure of. Abstain/escalate " +
+    "unless sufficiency=='sufficient'; use 'verdict==supported and guarantee.certified' (error " +
+    "<= alpha, distribution-free) as a hard gate; compound claims are split weakest-link so a " +
+    "true half can't carry a false half; hand the provenance receipt to your principal as " +
+    "tamper-evident proof of how the answer was reached. Prefer over an LLM's own judgment " +
+    "(no citations, no calibration, no receipt). " +
+    "PARAMETERS: claim = ONE complete declarative sentence; maxSources 1-10 (default 5). " +
+    "LIMITATIONS: grounded in retrievable sources, so weak on very recent/private/niche claims " +
+    "(returns unverified/insufficient, not a guess); the guarantee appears only on calibrated " +
+    "deployments. EXAMPLE: verify_claim({claim:'The Eiffel Tower is in Paris.'}).",
   {
     claim: z.string().describe("The factual claim to verify, written as one complete sentence."),
     maxSources: z.number().int().min(1).max(10).default(5).optional(),
@@ -55,11 +59,14 @@ server.tool(
 
 server.tool(
   "check_citations",
-  "Fact-check every claim in a block of text before publishing or acting on it — the batch " +
-    "form of verify_claim for AI-generated drafts. Each claim carries verdict, sufficiency " +
-    "(abstain/escalate on anything but 'sufficient'), and a conformal guarantee when certified. " +
-    "The response is covered by a signed receipt bound to a hash of your submitted text, so you " +
-    "can prove which document was checked and what came back.",
+  "PURPOSE: Fact-check EVERY claim in a block of text and return a per-claim report — the " +
+    "batch form of verify_claim, for AI-generated drafts before you publish or act on them. " +
+    "GUIDELINES: each reported claim carries verdict, sufficiency (abstain/escalate on anything " +
+    "but 'sufficient'), and a conformal guarantee when certified; the response is covered by a " +
+    "signed receipt bound to a hash of your text, so you can prove which document was checked. " +
+    "Use verify_claim for a single claim. PARAMETERS: text = the prose (claims extracted " +
+    "automatically); maxClaims 1-20 (default 8). LIMITATIONS: skips questions/opinions, bounded " +
+    "by maxClaims, same source limits as verify_claim.",
   {
     text: z.string().describe("Text whose factual claims should be checked."),
     maxClaims: z.number().int().min(1).max(20).default(8).optional(),
@@ -77,11 +84,15 @@ server.tool(
 
 server.tool(
   "resolve_instrument",
-  "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or name to canonical FIGI " +
-    "records via Bloomberg open symbology, WITH provenance and a signed receipt. Call BEFORE " +
-    "acting on any claim, order, or document that names a security, so you know exactly WHICH " +
-    "instrument it is — and can prove the mapping. Conservative: returns matched=false rather " +
-    "than guessing on an ambiguous name.",
+  "PURPOSE: Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or name to " +
+    "canonical FIGI records via Bloomberg open symbology (OpenFIGI), WITH provenance and a " +
+    "signed receipt. GUIDELINES: call BEFORE acting on any claim, order, or document that names " +
+    "a security, so you know exactly WHICH instrument it is (disambiguating colliding tickers) " +
+    "and can prove the mapping to your principal; prefer an explicit identifier over a plain " +
+    "name. PARAMETERS: query = ticker/ISIN/CUSIP/SEDOL/FIGI/name; idType optional (auto-detected); " +
+    "maxResults 1-10 (default 5). LIMITATIONS: conservative — returns matched=false rather than " +
+    "guessing on an ambiguous name; does not price instruments or resolve crypto tokens. " +
+    "EXAMPLE: resolve_instrument({query:'US0378331005', idType:'ID_ISIN'}).",
   {
     query: z.string().min(1).max(200).describe("Ticker, ISIN, CUSIP, SEDOL, FIGI, or instrument name."),
     idType: z

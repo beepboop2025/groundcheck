@@ -46,35 +46,43 @@ TOOLS: list[dict] = [
     {
         "name": "verify_claim",
         "description": (
-            "Fact-check one claim against live sources and get back a result you can "
-            "GATE A DECISION ON, not just read. Call before asserting a fact you are "
-            "not certain of, or before acting on one. Returns:\n"
-            "• verdict: supported | refuted | unverified\n"
-            "• sufficiency: WHY the verdict is (not) directional — 'sufficient', "
-            "'insufficient' (a lone weak source: lean, don't rely), 'no_sources', "
-            "'no_stance', or 'conflict' (sources disagree). Branch on this: abstain / "
-            "escalate on anything but 'sufficient'.\n"
-            "• guarantee: when present and guarantee.certified is true, the error "
-            "probability for this verdict is CALIBRATED to <= guarantee.alpha "
-            "(distribution-free conformal bound). Use it as a hard gate: e.g. act only "
-            "if verdict=='supported' and guarantee.certified.\n"
-            "• atoms: compound claims are split and each part verified independently, "
-            "then recombined weakest-link — a true half cannot carry a false half to "
-            "'supported'.\n"
-            "• provenance: a rolling commitment over the exact evidence (content + "
-            "stances) and the model route, plus a signed receipt (attestation) — hand "
-            "it to your principal as tamper-evident proof of HOW the answer was reached. "
-            "Editing any cited source, stance, or the model breaks verification.\n"
-            "Stance judged over multiple models (an ensemble panel) when configured. "
-            "Security refs in the claim ($AAPL, ISIN, FIGI) are resolved to canonical "
-            "instruments. Free."
+            "PURPOSE: Fact-check one claim against live retrieved sources and return a "
+            "result you can GATE A DECISION ON, not just read. Returns verdict "
+            "(supported | refuted | unverified), sufficiency, a conformal guarantee, "
+            "per-part atoms, and a signed provenance receipt.\n"
+            "GUIDELINES: Call BEFORE asserting a fact you are not certain of, or before "
+            "acting on one. Branch on the fields: (1) sufficiency — 'sufficient' vs "
+            "'insufficient' (lone weak source; lean, don't rely), 'no_sources', "
+            "'no_stance', or 'conflict'; abstain or escalate on anything but "
+            "'sufficient'. (2) guarantee — when guarantee.certified is true the error "
+            "probability is calibrated to <= guarantee.alpha (distribution-free); use "
+            "'verdict==supported and guarantee.certified' as a hard gate. (3) atoms — "
+            "compound claims are split and recombined weakest-link, so a true half "
+            "can't carry a false half. (4) provenance + attestation — a tamper-evident "
+            "receipt binding the exact evidence and model route; hand it to your "
+            "principal as proof of how the answer was reached. Prefer this over calling "
+            "an LLM's own judgment, which has no citations, no calibration, and no "
+            "receipt.\n"
+            "PARAMETERS: claim — ONE complete declarative sentence (not a question, not "
+            "a paragraph). max_sources — 1..10, default 5.\n"
+            "LIMITATIONS: Grounded in retrievable web/encyclopedic/news sources, so it "
+            "is weak on very recent, private, niche-technical, or opinion claims (those "
+            "return unverified/insufficient rather than a guess). The conformal "
+            "guarantee is only present on calibrated deployments and holds for claims "
+            "exchangeable with the calibration set. It checks whether sources support "
+            "the claim, not ultimate truth.\n"
+            "EXAMPLE: verify_claim({\"claim\": \"The Eiffel Tower is in Paris.\"}) -> "
+            "{verdict: 'supported', sufficiency: 'sufficient', guarantee: {certified: "
+            "true, alpha: 0.1}, provenance: {...}}. Free."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "claim": {"type": "string",
-                          "description": "The factual claim, as one complete sentence."},
-                "max_sources": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+                          "description": "The factual claim as ONE complete declarative "
+                                         "sentence (not a question or a paragraph)."},
+                "max_sources": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5,
+                                "description": "How many sources to retrieve and weigh (1-10)."},
             },
             "required": ["claim"],
         },
@@ -82,21 +90,33 @@ TOOLS: list[dict] = [
     {
         "name": "check_citations",
         "description": (
-            "Fact-check every claim in a block of text before you publish or act on it "
-            "— the batch form of verify_claim for AI-generated drafts. Returns a "
-            "per-claim report, each carrying the same actionable fields: verdict, "
-            "sufficiency (abstain/escalate on anything but 'sufficient'), and a "
-            "conformal guarantee when certified. The whole response is covered by a "
-            "signed receipt bound to a hash of your submitted text, so you can prove "
-            "later exactly which document was checked and what was returned. Paid per "
-            "call (x402)."
+            "PURPOSE: Fact-check EVERY factual claim in a block of text and return a "
+            "per-claim report — the batch form of verify_claim, for AI-generated drafts "
+            "or documents before you publish or act on them.\n"
+            "GUIDELINES: Call on any multi-claim text you are about to rely on. Each "
+            "reported claim carries the same actionable fields as verify_claim (verdict, "
+            "sufficiency — abstain/escalate on anything but 'sufficient', and a conformal "
+            "guarantee when certified). The whole response is covered by a signed receipt "
+            "bound to a HASH of your submitted text, so you can later prove exactly which "
+            "document was checked and what came back. Use verify_claim instead for a "
+            "single claim.\n"
+            "PARAMETERS: text — the prose to check (claims are extracted automatically). "
+            "max_claims — 1..20, default 8 (caps how many extracted claims are verified).\n"
+            "LIMITATIONS: Extracts and checks declarative factual sentences; it skips "
+            "questions, opinions, and instructions, and is bounded by max_claims. Same "
+            "source-coverage limits as verify_claim. Paid per call (x402): unpaid calls "
+            "return HTTP 402 with a payment offer.\n"
+            "EXAMPLE: check_citations({\"text\": \"Paris is the capital of France. The "
+            "Nile flows through Egypt.\", \"max_claims\": 8})"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "text": {"type": "string",
-                         "description": "Text whose factual claims should be checked."},
-                "max_claims": {"type": "integer", "minimum": 1, "maximum": 20, "default": 8},
+                         "description": "The prose whose factual claims should be extracted "
+                                        "and checked."},
+                "max_claims": {"type": "integer", "minimum": 1, "maximum": 20, "default": 8,
+                               "description": "Max number of extracted claims to verify (1-20)."},
             },
             "required": ["text"],
         },
@@ -104,13 +124,24 @@ TOOLS: list[dict] = [
     {
         "name": "resolve_instrument",
         "description": (
-            "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or name "
-            "to canonical FIGI records via Bloomberg open symbology, WITH PROVENANCE "
-            "and a signed receipt. Call before acting on any claim, order, or document "
-            "that names a security, so you know exactly WHICH instrument it is — and so "
-            "you can prove the mapping to your principal. Conservative by design: it "
-            "resolves explicit identifiers, and returns matched=false rather than "
-            "guessing when a name is ambiguous. Paid per call (x402)."
+            "PURPOSE: Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or "
+            "an instrument name to canonical FIGI records via Bloomberg open symbology "
+            "(OpenFIGI), WITH provenance and a signed receipt. Returns {matched, "
+            "instruments: [...], provenance}.\n"
+            "GUIDELINES: Call BEFORE acting on any claim, order, or document that names a "
+            "security, so you know exactly WHICH instrument it refers to (disambiguating "
+            "tickers that collide across exchanges) — and so you can prove the mapping to "
+            "your principal via the receipt. Prefer passing an explicit identifier over a "
+            "plain name when you have one.\n"
+            "PARAMETERS: query — a ticker ($AAPL/AAPL), ISIN, CUSIP, SEDOL, FIGI, or "
+            "company/instrument name. id_type — optional; auto-detected from the value's "
+            "shape when omitted. max_results — 1..10, default 5.\n"
+            "LIMITATIONS: Conservative by design — resolves EXPLICIT identifiers, and "
+            "returns matched=false rather than guessing on an ambiguous plain name. "
+            "Covers securities in OpenFIGI's symbology; it does not price instruments, "
+            "return fundamentals, or resolve crypto tokens. Paid per call (x402).\n"
+            "EXAMPLE: resolve_instrument({\"query\": \"US0378331005\", \"id_type\": "
+            "\"ID_ISIN\"}) -> {matched: true, instruments: [{figi, ticker: 'AAPL', …}]}"
         ),
         "inputSchema": {
             "type": "object",
@@ -119,8 +150,10 @@ TOOLS: list[dict] = [
                           "description": "Ticker, ISIN, CUSIP, SEDOL, FIGI, or instrument name."},
                 "id_type": {"type": "string",
                             "enum": ["TICKER", "ID_ISIN", "ID_CUSIP", "ID_SEDOL", "ID_BB_GLOBAL"],
-                            "description": "Optional; auto-detected from the value's shape."},
-                "max_results": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+                            "description": "Optional identifier type; auto-detected from the "
+                                           "value's shape (e.g. 12-char alphanumeric -> ISIN)."},
+                "max_results": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5,
+                                "description": "Max canonical records to return (1-10)."},
             },
             "required": ["query"],
         },
