@@ -419,8 +419,10 @@ def _resource_info(path: str, resource: str) -> dict:
         description=legacy["description"],
         mime_type="application/json",
         service_name="Groundcheck",
-        tags=["enrichment", "grounding", "citations", "verified-data",
-              "agent-tools", "delivery-receipts", "agentic-commerce"],
+        # Bazaar spec caps tags at 5; the indexer silently drops
+        # non-conforming resource blocks (x402-foundation/x402#2112).
+        tags=["grounding", "citations", "verified-data",
+              "delivery-receipts", "agentic-commerce"],
         icon_url="https://groundcheck.seiche.info/favicon.ico",
     ).model_dump(mode="json", by_alias=True, exclude_none=True)
 
