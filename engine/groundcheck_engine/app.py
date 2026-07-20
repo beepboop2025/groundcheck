@@ -543,6 +543,7 @@ async def attest_pubkey() -> JSONResponse:
 
 
 @app.get("/.well-known/x402")
+@app.get("/.well-known/x402.json")  # some indexers probe the .json spelling
 async def x402_manifest(request: Request) -> JSONResponse:
     """Machine-readable payment manifest, for agents and discovery indexes."""
     if not x402.enabled():

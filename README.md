@@ -5,6 +5,8 @@
 
 # Groundcheck
 
+[![Groundcheck on x402-list](https://x402-list.com/badge/groundcheck.svg?data=uptime)](https://x402-list.com/services/groundcheck?utm_source=badge&utm_medium=referral&utm_campaign=embed)
+
 ![Groundcheck — verify a factual claim against live sources, over MCP](assets/og-card.png)
 
 **The grounding check agents run before they commit to an answer.**

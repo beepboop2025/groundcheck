@@ -208,6 +208,12 @@ def test_manifest_lists_paid_resources(client, monkeypatch):
     assert "/verify" in m["alwaysFree"]
 
 
+def test_manifest_json_alias_serves_same_document(client, monkeypatch):
+    _enable(monkeypatch)
+    assert (client.get("/.well-known/x402.json").json()
+            == client.get("/.well-known/x402").json())
+
+
 def test_health_reports_x402_state(client, monkeypatch):
     assert client.get("/health").json()["x402"] is False
     _enable(monkeypatch)
