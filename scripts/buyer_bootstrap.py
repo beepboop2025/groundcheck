@@ -182,10 +182,15 @@ def cmd_dry_run(args) -> None:
 
 def cmd_pay(args) -> None:
     host = args.host.rstrip("/")
-    paths = (["/extract", "/attest-delivery"] if args.path == "all"
-             else [args.path])
+    paths = (["/check", "/resolve", "/extract", "/attest-delivery"]
+             if args.path == "all" else [args.path])
+    bodies = {
+        "/check": EXTRACT_BODY,
+        "/resolve": {"query": "AAPL"},
+        "/extract": EXTRACT_BODY,
+    }
     for path in paths:
-        body = EXTRACT_BODY if path == "/extract" else {
+        body = bodies.get(path) or {
             "service": f"{host}/extract",
             "response_text": json.dumps(EXTRACT_BODY),
             "advertised_schema": {"type": "object", "required": ["text"]},
@@ -253,7 +258,7 @@ def main() -> None:
     sub.add_parser("generate")
     sub.add_parser("dry-run")
     pay = sub.add_parser("pay")
-    pay.add_argument("--path", choices=["/extract", "/attest-delivery", "all"],
+    pay.add_argument("--path", choices=["/check", "/resolve", "/extract", "/attest-delivery", "all"],
                      default="all")
     sub.add_parser("loop")
     args = ap.parse_args()
