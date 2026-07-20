@@ -352,6 +352,49 @@ _BAZAAR_EXTENSIONS = {
 }
 
 
+def _wrap_bazaar_schemas() -> None:
+    """Rewrap each bazaar `schema` into the catalog's declaration-envelope shape.
+
+    The Bazaar indexer validates `schema` as a schema OF the `info` declaration
+    (properties.input mirrors info.input with the request-body schema nested
+    under properties.body; properties.output mirrors info.output), not as the
+    raw request-body schema. Indexed services all carry this wrapper; flat
+    body schemas are silently dropped (x402-foundation/x402#2112).
+    """
+    for ext in _BAZAAR_EXTENSIONS.values():
+        bz = ext["bazaar"]
+        body_schema = {k: v for k, v in bz["schema"].items() if k != "$schema"}
+        bz["schema"] = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["type", "method", "body"],
+                    "properties": {
+                        "type": {"type": "string", "const": "http"},
+                        "method": {"type": "string", "const": "POST"},
+                        "bodyType": {"type": "string", "const": "json"},
+                        "body": body_schema,
+                    },
+                },
+                "output": {
+                    "type": "object",
+                    "required": ["type"],
+                    "properties": {
+                        "type": {"type": "string", "const": "json"},
+                        "example": {"type": "object"},
+                    },
+                },
+            },
+        }
+
+
+_wrap_bazaar_schemas()
+
+
 def _requirements(path: str, resource: str, network: str) -> dict:
     """PaymentRequirements for one call ("exact" scheme), for one network id."""
     usd = price_usd(path)
