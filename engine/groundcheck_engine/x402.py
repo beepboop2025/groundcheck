@@ -470,23 +470,72 @@ def _resource_info(path: str, resource: str) -> dict:
     ).model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
-def payment_required(path: str, resource: str, error: str) -> tuple[dict, dict]:
-    """(v2 JSON body, extra response headers) for a 402.
+def v1_body_enabled() -> bool:
+    """Whether the 402 body speaks v1. On by default; see payment_required."""
+    return _env("GROUNDCHECK_X402_V1_BODY", "1") not in ("0", "off", "false")
 
-    Body and PAYMENT-REQUIRED header carry the same v2 envelope, validated
-    against the SDK's PaymentRequired model so any standard buyer can parse
-    it. resource/description/mimeType live at the envelope level in v2.
+
+def payment_required(path: str, resource: str, error: str) -> tuple[dict, dict]:
+    """(JSON body, extra response headers) for a 402 — v2 in the header, v1 in the body.
+
+    One response, both protocol generations, because the deployed buyer population is
+    split and the two read different parts of it.
+
+    A v2 client reads the base64 PAYMENT-REQUIRED header and returns before it ever
+    looks at the body (coinbase/x402, x402HTTPClient.ts: the header branch returns,
+    and the body is only consulted when the header is absent AND the body says
+    x402Version 1). So for v2 the body is dead space — Coinbase's own reference
+    resource server ships `{}` there.
+
+    The legacy unscoped client line (x402-fetch / x402-axios 1.x, still the `latest`
+    dist-tag on npm and drawing tens of thousands of downloads a week) is the reverse:
+    its dist contains no reference to PAYMENT-REQUIRED at all, so it never sees the
+    header, and it validates the body against a strict v1 schema. Against a v2 body it
+    throws a ZodError on five fields — the CAIP-2 network id, and the four v1 members
+    maxAmountRequired / resource / description / mimeType that v2 moved out of each
+    offer. It cannot pay us at any price.
+
+    Filling the dead space with a complete v1 envelope serves that population at no
+    cost to v2, and it also settles a standing contradiction: the manifest advertises
+    x402Versions [1, 2] and payment_header() accepts an inbound X-PAYMENT, while the
+    402 only ever offered v2 terms. The service was promising something it could not
+    keep.
+
+    Unknown keys are stripped rather than rejected by the v1 schema, so the envelope
+    also carries the v2 resource object and Bazaar extensions for anything that reads
+    the body instead of the header. Bazaar indexing itself is unaffected either way:
+    it is driven by the declaration a v2 buyer echoes back from the header into its
+    settle payload, not by this body.
+
+    GROUNDCHECK_X402_V1_BODY=0 reverts to a v2 body.
     """
     from x402.schemas import PaymentRequired
 
-    body = PaymentRequired.model_validate({
+    v2 = PaymentRequired.model_validate({
         "x402Version": 2,
         "error": error,
         "resource": _resource_info(path, resource),
         "accepts": accepts(path, resource),
         "extensions": _BAZAAR_EXTENSIONS.get(path),
     }).model_dump(mode="json", by_alias=True, exclude_none=True)
-    headers = {"PAYMENT-REQUIRED": base64.b64encode(json.dumps(body).encode()).decode()}
+    headers = {"PAYMENT-REQUIRED": base64.b64encode(json.dumps(v2).encode()).decode()}
+
+    if not v1_body_enabled():
+        return v2, headers
+
+    name, _ = _network_pair()
+    body = {
+        "x402Version": 1,
+        "error": error,
+        # v1 offers name the network in human form and carry resource, description
+        # and mimeType inside each entry — exactly the fields the strict schema
+        # rejected us on.
+        "accepts": [_requirements(path, resource, name)],
+        # Ignored by v1 clients, retained for body-reading graders and indexes.
+        "resource": v2["resource"],
+    }
+    if v2.get("extensions"):
+        body["extensions"] = v2["extensions"]
     return body, headers
 
 

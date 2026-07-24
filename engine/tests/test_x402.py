@@ -80,29 +80,61 @@ def test_free_quota_counts_down_then_402(client, monkeypatch):
     r3 = client.post("/check", json=PAID)
     assert r3.status_code == 402
     body = r3.json()
-    assert body["x402Version"] == 2
+    assert body["x402Version"] == 1        # body is v1; the header carries v2
     assert "quota" in body["error"]
 
 
-def test_402_is_v2_native(client, monkeypatch):
+def test_402_header_is_v2_native(client, monkeypatch):
+    """v2 lives in the PAYMENT-REQUIRED header, which is the only place a v2 client
+    looks: it returns from the header branch before the body is ever read."""
     _enable(monkeypatch, free_per_day=0)
     r = client.post("/check", json=PAID)
     assert r.status_code == 402
-    body = r.json()
-    assert body["x402Version"] == 2
-    assert body["resource"]["url"].endswith("/check")     # envelope-level object
-    assert body["resource"]["mimeType"] == "application/json"
-    nets = {a["network"] for a in body["accepts"]}
+    v2 = json.loads(base64.b64decode(r.headers["PAYMENT-REQUIRED"]))
+    assert v2["x402Version"] == 2
+    assert v2["resource"]["url"].endswith("/check")       # envelope-level object
+    assert v2["resource"]["mimeType"] == "application/json"
+    nets = {a["network"] for a in v2["accepts"]}
     assert nets == {"eip155:8453"}                        # CAIP-2 only, no v1 names
-    for offer in body["accepts"]:
+    for offer in v2["accepts"]:
         assert offer["scheme"] == "exact"
         assert offer["payTo"].endswith("dEaD")
         assert offer["amount"] == "20000"                 # $0.02 in USDC atomic units
         assert "resource" not in offer and "description" not in offer
-    # header envelope mirrors the body
-    v2 = json.loads(base64.b64decode(r.headers["PAYMENT-REQUIRED"]))
-    assert v2["x402Version"] == 2
-    assert v2["accepts"][0]["network"] == "eip155:8453"
+
+
+def test_402_body_is_v1_so_the_legacy_client_line_can_pay(client, monkeypatch):
+    """REGRESSION: a v2-only 402 was unpayable by x402-fetch / x402-axios 1.x, which
+    is still npm's `latest` for that line and never reads the PAYMENT-REQUIRED header.
+    It validates the body against a strict v1 schema and threw on exactly these five
+    fields."""
+    _enable(monkeypatch, free_per_day=0)
+    body = client.post("/check", json=PAID).json()
+    assert body["x402Version"] == 1
+    offer = body["accepts"][0]
+    assert offer["network"] == "base"                     # v1 enum, not CAIP-2
+    assert offer["maxAmountRequired"] == "20000"
+    assert offer["resource"].endswith("/check")           # a string in v1, not an object
+    assert offer["description"] and offer["mimeType"] == "application/json"
+    assert offer["payTo"].endswith("dEaD")
+    assert offer["asset"] and offer["extra"]["name"] == "USD Coin"
+
+
+def test_v1_body_still_carries_what_body_reading_indexes_want(client, monkeypatch):
+    """v1 ignores unknown keys, so the service metadata does not have to be dropped."""
+    _enable(monkeypatch, free_per_day=0)
+    body = client.post("/check", json=PAID).json()
+    assert body["resource"]["serviceName"] == "Groundcheck"
+    assert body["extensions"]["bazaar"]["routeTemplate"] == "/check"
+
+
+def test_v1_body_can_be_switched_off(client, monkeypatch):
+    """One env flip reverts the wire format if an index ever objects to it."""
+    _enable(monkeypatch, free_per_day=0)
+    monkeypatch.setenv("GROUNDCHECK_X402_V1_BODY", "0")
+    body = client.post("/check", json=PAID).json()
+    assert body["x402Version"] == 2
+    assert body["accepts"][0]["network"] == "eip155:8453"
 
 
 def test_verify_endpoint_stays_free(client, monkeypatch):
@@ -256,13 +288,15 @@ def test_openapi_marks_paid_and_free_surfaces():
 
 def test_402_parses_with_official_sdk(client, monkeypatch):
     """The exact failure that blocked real buyers: the official SDK's
-    PaymentRequired model must validate our 402 body verbatim."""
+    PaymentRequired model must validate what a v2 client actually reads, which is
+    the PAYMENT-REQUIRED header envelope."""
     from x402.schemas import PaymentRequired
 
     _enable(monkeypatch, free_per_day=0)
     r = client.post("/check", json=PAID)
     assert r.status_code == 402
-    parsed = PaymentRequired.model_validate(r.json())
+    envelope = json.loads(base64.b64decode(r.headers["PAYMENT-REQUIRED"]))
+    parsed = PaymentRequired.model_validate(envelope)
     assert parsed.x402_version == 2
     assert parsed.resource and parsed.resource.url.endswith("/check")
     assert parsed.accepts[0].amount == "20000"
