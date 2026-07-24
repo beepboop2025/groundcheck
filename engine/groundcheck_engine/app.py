@@ -184,6 +184,18 @@ def _pay_402(path: str, resource: str, error: str) -> JSONResponse:
     return JSONResponse(body, status_code=402, headers=headers)
 
 
+def _mcp_pay_402(msg_id, path: str, resource: str, error: str) -> JSONResponse:
+    """The same offer, shaped for a JSON-RPC caller.
+
+    HTTP 402 is right for the REST paths and wrong for /mcp: the streamable-HTTP
+    transport raises on any non-2xx, so the SDK client throws before a result exists
+    and the agent never sees the offer. See mcp_http.payment_required_result.
+    """
+    body, headers = x402.payment_required(path, resource, error)
+    return JSONResponse(mcp_http.payment_required_result(msg_id, body, error),
+                        status_code=200, headers=headers)
+
+
 # Registered after rate_limit, so it runs OUTSIDE it: payment is decided
 # first, and verified payers skip the free-surface rate limit entirely.
 @app.middleware("http")
@@ -692,35 +704,36 @@ async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response
         seen = functools.partial(funnel.record, path=f"mcp:{path}", method="POST",
                                  ip=_client_ip(request),
                                  ua=request.headers.get("User-Agent", ""))
+        msg_id = single.get("id")
         raw = x402.payment_header(request.headers)
         if raw is None:
             ip = _client_ip(request)
             if _free_quota_take(ip) is None:
                 seen("unpaid", reason="no payment header")
-                return _pay_402(path, resource,
-                                f"{mcp_http.tool_name(single)} is a paid tool — "
-                                "free daily quota exhausted")
+                return _mcp_pay_402(msg_id, path, resource,
+                                    f"{mcp_http.tool_name(single)} is a paid tool — "
+                                    "free daily quota exhausted")
             seen("free")
         else:
             payment = x402.decode_payment(raw)
             if payment is None:
                 seen("malformed", reason="payment header did not decode")
-                return _pay_402(path, resource, "payment header malformed")
+                return _mcp_pay_402(msg_id, path, resource, "payment header malformed")
             dialect = funnel.payment_dialect(payment)
             price = x402.price_usd(path)
             reqs = x402.select_requirements(payment, path, resource)
             ok, why = x402.verify(payment, reqs)
             if not ok:
                 seen("verify_fail", reason=why, dialect=dialect, amount_usd=price)
-                return _pay_402(path, resource, why)
+                return _mcp_pay_402(msg_id, path, resource, why)
             resp = await mcp_http.dispatch(single, _MCP_HANDLERS)
             settled, receipt = x402.settle(payment, reqs)
             if not settled:  # fail-closed: no settle, no result
                 seen("settle_fail",
                      reason=str(receipt.get("errorReason") or "settlement failed"),
                      dialect=dialect, amount_usd=price)
-                return _pay_402(path, resource,
-                                str(receipt.get("errorReason") or "settlement failed"))
+                return _mcp_pay_402(msg_id, path, resource,
+                                    str(receipt.get("errorReason") or "settlement failed"))
             seen("paid", dialect=dialect, amount_usd=price,
                  payer=str(receipt.get("payer") or ""),
                  tx=str(receipt.get("transaction") or ""))

@@ -274,6 +274,9 @@ def test_paid_mcp_tool_call_is_recorded_under_the_mcp_transport(client, monkeypa
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": "check_citations", "arguments": {"text": TEXT}}}
     r = client.post("/mcp", json=body, headers={"User-Agent": "MysteryBuyer/2.0"})
-    assert r.status_code == 402
+    # 200 with an in-band isError result: a non-2xx would make the MCP transport
+    # throw before the agent ever sees the offer.
+    assert r.status_code == 200
+    assert r.json()["result"]["isError"] is True
     s = funnel.summary()
     assert s["by_path"]["mcp:/check:unpaid"] == 1

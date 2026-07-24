@@ -284,6 +284,33 @@ def _text_result(msg_id: Any, payload: Any, is_error: bool = False) -> dict:
     })
 
 
+def payment_required_result(msg_id: Any, offer: dict, note: str) -> dict:
+    """A payment requirement expressed as a TOOL RESULT rather than a transport error.
+
+    MCP reports tool-execution failures in band, as a result carrying isError, and the
+    streamable-HTTP transport treats any non-2xx as a transport-level fault. A bare
+    HTTP 402 therefore makes the official SDK client raise StreamableHTTPError before
+    a result object exists, so the calling agent never sees the offer, cannot pay, and
+    cannot even report why. Every paid tool is unreachable over MCP that way even
+    though the payment rail behind it is working — which is exactly what was happening
+    here, across the whole MCP distribution surface (registry, Glama, PulseMCP,
+    mcp.so, the URL connectors).
+
+    So the offer is returned at HTTP 200 in a well-formed JSON-RPC envelope: machine
+    readable in structuredContent, which is what x402's MCP client reads, and mirrored
+    into content[0].text so a model driving the tool by hand can read the price and
+    decide. The PAYMENT-REQUIRED header still rides along for x402-aware transports.
+    """
+    import json as _json
+
+    payload = {"error": "payment_required", "note": note, "offer": offer}
+    return _result(msg_id, {
+        "content": [{"type": "text", "text": _json.dumps(payload, indent=2, default=str)}],
+        "structuredContent": payload,
+        "isError": True,
+    })
+
+
 def priced_tool(msg: Any) -> str | None:
     """The REST path a single tools/call message is priced as, or None if the
     message is not a paid tool call."""
@@ -312,7 +339,9 @@ def annotate_tools_list(resp: dict) -> dict:
                 "x402": {
                     "price": {"mode": "fixed", "currency": "USD", "amount": f"{price:.6f}"},
                     "payTo": x402.pay_to_address(),
-                    "note": "unpaid calls answer HTTP 402 with the offer",
+                    "note": "unpaid calls return an isError result carrying the "
+                            "x402 offer in structuredContent; pay and retry with "
+                            "X-PAYMENT or PAYMENT-SIGNATURE",
                 }
             }
     return resp

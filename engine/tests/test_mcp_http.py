@@ -128,16 +128,59 @@ def test_tool_error_is_reported_not_raised(client):
 
 # ---- payment -------------------------------------------------------------------
 
-def test_paid_tool_answers_402_when_quota_dry(client, monkeypatch):
+def test_paid_tool_offers_payment_as_a_jsonrpc_result_not_a_transport_error(
+        client, monkeypatch):
+    """REGRESSION: a bare HTTP 402 made every paid tool unreachable over MCP.
+
+    The streamable-HTTP transport raises on any non-2xx, so the official SDK client
+    threw StreamableHTTPError before a result object existed: the agent never saw the
+    offer, could not pay, and could not report why. Payment is a tool-execution
+    condition, so it belongs in band, at HTTP 200, as a result carrying isError.
+    """
     _enable_x402(monkeypatch)
     monkeypatch.setattr(app_module.config, "X402_FREE_PER_DAY", 0)
     r = client.post("/mcp", json={**RPC, "method": "tools/call",
                                   "params": {"name": "resolve_instrument",
                                              "arguments": {"query": "AAPL"}}})
-    assert r.status_code == 402
+    assert r.status_code == 200, "non-2xx makes the SDK transport throw"
     body = r.json()
-    assert body["accepts"], "402 must carry an x402 offer"
-    assert "paid tool" in body["error"]
+    assert body["jsonrpc"] == "2.0"
+    assert body["id"] == 1, "the request id must be echoed or the client cannot match"
+    result = body["result"]
+    assert result["isError"] is True
+    offer = result["structuredContent"]["offer"]          # what x402's MCP client reads
+    assert offer["accepts"], "the offer must still carry x402 payment requirements"
+    assert "paid tool" in result["structuredContent"]["note"]
+    # mirrored for a model driving the tool by hand
+    assert "payment_required" in result["content"][0]["text"]
+    # x402-aware transports can still read the header envelope
+    assert r.headers["PAYMENT-REQUIRED"]
+
+
+def test_no_mcp_path_ever_answers_non_2xx_for_a_priced_tool(client, monkeypatch):
+    """The defect class, pinned: any non-2xx on /mcp is invisible to an MCP client."""
+    _enable_x402(monkeypatch)
+    monkeypatch.setattr(app_module.config, "X402_FREE_PER_DAY", 0)
+    for name, args in (("resolve_instrument", {"query": "AAPL"}),
+                       ("check_citations", {"text": "The sky is blue."}),
+                       ("extract_claims", {"text": "The sky is blue."}),
+                       ("attest_delivery", {"service": "https://x.invalid",
+                                            "response_text": "{}"})):
+        r = client.post("/mcp", json={**RPC, "method": "tools/call",
+                                      "params": {"name": name, "arguments": args}})
+        assert r.status_code == 200, f"{name} answered {r.status_code}"
+        assert r.json()["result"]["isError"] is True
+
+
+def test_malformed_payment_on_mcp_also_stays_in_band(client, monkeypatch):
+    _enable_x402(monkeypatch)
+    monkeypatch.setattr(app_module.config, "X402_FREE_PER_DAY", 0)
+    r = client.post("/mcp", json={**RPC, "method": "tools/call",
+                                  "params": {"name": "resolve_instrument",
+                                             "arguments": {"query": "AAPL"}}},
+                    headers={"X-PAYMENT": "not-base64!!"})
+    assert r.status_code == 200
+    assert "malformed" in r.json()["result"]["structuredContent"]["note"]
 
 
 def test_free_tool_never_pays(client, monkeypatch):
