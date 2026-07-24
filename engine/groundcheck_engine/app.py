@@ -12,6 +12,7 @@ Endpoints:
   GET/POST /mcp     streamable-HTTP MCP transport (the 5 tools, by URL)
 """
 import asyncio
+import functools
 import json
 import re
 import time
@@ -23,7 +24,7 @@ from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import (atoms, attest, config, conformal, delivery, ensemble,
+from . import (atoms, attest, config, conformal, delivery, ensemble, funnel,
                instruments, mcp_http, provenance, x402)
 from .landing import LANDING_HTML
 from .models import (AtomReport, CheckResult, ClaimInstrument, ClaimReport,
@@ -192,42 +193,61 @@ async def x402_gate(request: Request, call_next):
         return await call_next(request)
 
     resource = str(request.url)
+    ip = _client_ip(request)
+    ua = request.headers.get("User-Agent", "")
+    # Every branch below records where this caller stopped. Without it a lost sale
+    # and a census crawler are the same line in the access log.
+    seen = functools.partial(funnel.record, path=path, method=request.method,
+                             ip=ip, ua=ua)
 
     # Paywall answers before method/body validation: discovery probes (x402scan,
     # Bazaar indexers) hit paid paths with GET and must see the 402 offer, not a
     # 405 from the router. Never consumes quota; settle only happens on POST.
     if request.method != "POST":
+        seen("probe")
         return _pay_402(path, resource, "payment required (call with POST)")
 
     raw = x402.payment_header(request.headers)
 
     if raw is None:  # unpaid: free daily quota, then 402 with the offer
-        ip = _client_ip(request)
         remaining = _free_quota_take(ip)
         if remaining is None:
+            seen("unpaid", reason="no payment header")
             return _pay_402(path, resource,
                             "free daily quota exhausted — pay per call via x402")
+        seen("free", reason=f"{remaining} left today")
         resp = await call_next(request)
         resp.headers["X-Groundcheck-Free-Remaining"] = str(remaining)
         return resp
 
     payment = x402.decode_payment(raw)
     if payment is None:
+        seen("malformed", reason="payment header did not decode")
         return _pay_402(path, resource, "payment header malformed")
+    dialect = funnel.payment_dialect(payment)
+    price = x402.price_usd(path)
     reqs = x402.select_requirements(payment, path, resource)
     ok, why = x402.verify(payment, reqs)
     if not ok:
+        seen("verify_fail", reason=why, dialect=dialect, amount_usd=price)
         return _pay_402(path, resource, why)
 
     request.state.x402_paid = True
     resp = await call_next(request)
     if resp.status_code != 200:
+        seen("engine_error", reason=f"engine returned {resp.status_code}",
+             dialect=dialect, amount_usd=price)
         return resp  # engine failed: serve the error, charge nothing
 
     settled, receipt = x402.settle(payment, reqs)
     if not settled:  # fail-closed: no settle, no result
+        seen("settle_fail", reason=str(receipt.get("errorReason") or "settlement failed"),
+             dialect=dialect, amount_usd=price)
         return _pay_402(path, resource,
                         str(receipt.get("errorReason") or "settlement failed"))
+    seen("paid", dialect=dialect, amount_usd=price,
+         payer=str(receipt.get("payer") or ""),
+         tx=str(receipt.get("transaction") or ""))
     for k, v in x402.receipt_headers(receipt).items():
         resp.headers[k] = v
     return resp
@@ -552,6 +572,19 @@ async def x402_manifest(request: Request) -> JSONResponse:
     return JSONResponse(x402.manifest(str(request.base_url).rstrip("/")))
 
 
+@app.get("/ops/funnel", include_in_schema=False)
+async def ops_funnel(request: Request, token: str = "") -> JSONResponse:
+    """Payment-funnel summary for the operator: who hit the paywall, where they stopped.
+
+    404s rather than 401s when no GROUNDCHECK_OPS_TOKEN is configured, and when the
+    token is wrong: an unauthenticated caller should not be able to learn that an
+    operator surface exists here, and revenue counts are not public information.
+    """
+    if not funnel.authorised(request.headers, token):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    return JSONResponse(funnel.summary())
+
+
 @app.get("/search")
 async def search(q: str, n: int = 5) -> dict:
     sources = await retriever.search(q, n)
@@ -654,26 +687,43 @@ async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response
     path = mcp_http.priced_tool(single) if single is not None else None
     if x402.enabled() and path is not None:
         resource = str(request.url)
+        # MCP tool calls are the same funnel as the REST paths and are tagged as
+        # such, so an operator can see which transport the demand arrives on.
+        seen = functools.partial(funnel.record, path=f"mcp:{path}", method="POST",
+                                 ip=_client_ip(request),
+                                 ua=request.headers.get("User-Agent", ""))
         raw = x402.payment_header(request.headers)
         if raw is None:
             ip = _client_ip(request)
             if _free_quota_take(ip) is None:
+                seen("unpaid", reason="no payment header")
                 return _pay_402(path, resource,
                                 f"{mcp_http.tool_name(single)} is a paid tool — "
                                 "free daily quota exhausted")
+            seen("free")
         else:
             payment = x402.decode_payment(raw)
             if payment is None:
+                seen("malformed", reason="payment header did not decode")
                 return _pay_402(path, resource, "payment header malformed")
+            dialect = funnel.payment_dialect(payment)
+            price = x402.price_usd(path)
             reqs = x402.select_requirements(payment, path, resource)
             ok, why = x402.verify(payment, reqs)
             if not ok:
+                seen("verify_fail", reason=why, dialect=dialect, amount_usd=price)
                 return _pay_402(path, resource, why)
             resp = await mcp_http.dispatch(single, _MCP_HANDLERS)
             settled, receipt = x402.settle(payment, reqs)
             if not settled:  # fail-closed: no settle, no result
+                seen("settle_fail",
+                     reason=str(receipt.get("errorReason") or "settlement failed"),
+                     dialect=dialect, amount_usd=price)
                 return _pay_402(path, resource,
                                 str(receipt.get("errorReason") or "settlement failed"))
+            seen("paid", dialect=dialect, amount_usd=price,
+                 payer=str(receipt.get("payer") or ""),
+                 tx=str(receipt.get("transaction") or ""))
             return JSONResponse(resp, headers=x402.receipt_headers(receipt))
 
     responses = []

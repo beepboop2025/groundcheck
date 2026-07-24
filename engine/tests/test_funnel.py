@@ -1,0 +1,241 @@
+"""Payment-funnel observability: does every paywall outcome leave a distinguishable trace?
+
+The point of this module is to answer one operational question truthfully — did a real
+buyer try to pay and fail, or was that just a census crawler? So the tests care about
+(a) each stage being recorded with its reason, (b) known ecosystem infrastructure being
+bucketed away from unidentified callers, and (c) observability never being able to break
+a payment.
+"""
+
+import base64
+import json
+import os
+
+os.environ["GROUNDCHECK_SEARCH_BACKEND"] = "stub"  # before app import
+
+import pytest
+from fastapi.testclient import TestClient
+
+from groundcheck_engine import app as app_mod
+from groundcheck_engine import funnel
+
+TEXT = ("The Eiffel Tower is located in Paris and was completed in 1889. "
+        "It was the tallest man-made structure in the world for 41 years.")
+PAID = {"text": TEXT, "max_claims": 2}
+OPS_TOKEN = "ops-secret-token"
+
+
+@pytest.fixture()
+def client(monkeypatch):
+    monkeypatch.delenv("GROUNDCHECK_X402_PAY_TO", raising=False)
+    monkeypatch.delenv("GROUNDCHECK_FUNNEL_LOG", raising=False)
+    monkeypatch.delenv("GROUNDCHECK_OPS_TOKEN", raising=False)
+    app_mod._free_used.clear()
+    app_mod._hits.clear()
+    funnel.reset()
+    return TestClient(app_mod.app)
+
+
+def _enable(monkeypatch, free_per_day=0):
+    monkeypatch.setenv("GROUNDCHECK_X402_PAY_TO",
+                       "0x000000000000000000000000000000000000dEaD")
+    monkeypatch.setattr(app_mod.config, "X402_FREE_PER_DAY", free_per_day)
+
+
+def _payment(version=2):
+    return base64.b64encode(json.dumps(
+        {"x402Version": version, "scheme": "exact", "network": "eip155:8453",
+         "payload": {"signature": "0xsig", "authorization": {}}}
+    ).encode()).decode()
+
+
+def _facilitator(verify_ok=True, settle_ok=True):
+    def fake_post(path, body):
+        if path == "/verify":
+            return ({"isValid": True} if verify_ok
+                    else {"isValid": False, "invalidReason": "insufficient_funds"})
+        if settle_ok:
+            return {"success": True, "transaction": "0xtx", "network": "base",
+                    "payer": "0xBuyer"}
+        return {"success": False, "errorReason": "settle_reverted"}
+    return fake_post
+
+
+# ---- caller classification --------------------------------------------------
+
+@pytest.mark.parametrize("ua,bucket", [
+    ("CarbonMonitor/0.1 healthcheck (+https://carbon-cashmere.de)", "monitor"),
+    ("x402-observer/1.0 (uptime+trust monitor; +https://x402.fuchss.app/trust)", "monitor"),
+    ("CoinbaseBazaarDiscovery/1.0 (+https://docs.cdp.coinbase.com/x402)", "indexer"),
+    ("AgentReeve/0.1 (independent x402 index; polite daily probe)", "indexer"),
+    ("x402-census-probe/2.1 (independent index research)", "indexer"),
+    ("ClaudeBot/1.0", "crawler"),
+    ("axios/1.14.0", "buyer-like"),
+    ("x402-fetch/0.6.1", "buyer-like"),
+    ("", "unknown"),
+    ("SomeThingNobodyHasSeen/9", "unknown"),
+])
+def test_classify_agent(ua, bucket):
+    assert funnel.classify_agent(ua) == bucket
+
+
+def test_unknown_agents_are_never_absorbed_into_a_catch_all():
+    """A new real buyer must surface as `unknown`, not be silently bucketed as a bot."""
+    assert funnel.classify_agent("MysteryBuyer/2.0 (+https://example.invalid)") == "unknown"
+
+
+# ---- one distinguishable trace per outcome ----------------------------------
+
+def test_get_probe_is_recorded_as_probe_not_lost_demand(client, monkeypatch):
+    _enable(monkeypatch)
+    r = client.get("/check", headers={"User-Agent": "x402-census-probe/2.1"})
+    assert r.status_code == 402
+    s = funnel.summary()
+    assert s["stages"]["probe"] == 1
+    assert s["stages"]["unpaid"] == 0
+    assert s["payment_attempts"] == 0
+
+
+def test_unpaid_post_from_known_indexer_is_not_counted_as_a_lost_buyer(client, monkeypatch):
+    _enable(monkeypatch)
+    client.post("/check", json=PAID,
+                headers={"User-Agent": "CoinbaseBazaarDiscovery/1.0"})
+    s = funnel.summary()
+    assert s["stages"]["unpaid"] == 1
+    assert s["unidentified_unpaid_posts"] == 0     # the number that matters stays clean
+    assert s["by_caller"]["indexer:unpaid"] == 1
+
+
+def test_unpaid_post_from_unknown_caller_raises_the_signal(client, monkeypatch):
+    _enable(monkeypatch)
+    client.post("/check", json=PAID, headers={"User-Agent": "MysteryBuyer/2.0"})
+    assert funnel.summary()["unidentified_unpaid_posts"] == 1
+
+
+def test_malformed_payment_header_is_its_own_stage(client, monkeypatch):
+    _enable(monkeypatch)
+    r = client.post("/check", json=PAID, headers={"X-PAYMENT": "not-base64!!"})
+    assert r.status_code == 402
+    s = funnel.summary()
+    assert s["stages"]["malformed"] == 1
+    assert s["payment_attempts"] == 1             # someone TRIED to pay
+
+
+def test_verify_failure_records_the_facilitator_reason(client, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setattr(app_mod.x402, "_facilitator_post", _facilitator(verify_ok=False))
+    r = client.post("/check", json=PAID, headers={"X-PAYMENT": _payment()})
+    assert r.status_code == 402
+    s = funnel.summary()
+    assert s["stages"]["verify_fail"] == 1
+    assert any("insufficient_funds" in k for k in s["drop_off_reasons"])
+    assert s["recent"][-1]["dialect"] == "v2"
+    assert s["recent"][-1]["amount_usd"] == 0.02
+
+
+def test_settle_failure_is_distinguished_from_verify_failure(client, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setattr(app_mod.x402, "_facilitator_post", _facilitator(settle_ok=False))
+    r = client.post("/check", json=PAID, headers={"X-PAYMENT": _payment()})
+    assert r.status_code == 402
+    s = funnel.summary()
+    assert s["stages"]["settle_fail"] == 1
+    assert s["stages"]["verify_fail"] == 0
+    assert any("settle_reverted" in k for k in s["drop_off_reasons"])
+
+
+def test_settled_call_records_payer_and_transaction(client, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setattr(app_mod.x402, "_facilitator_post", _facilitator())
+    r = client.post("/check", json=PAID, headers={"X-PAYMENT": _payment()})
+    assert r.status_code == 200
+    s = funnel.summary()
+    assert s["stages"]["paid"] == 1
+    assert s["settled"] == 1
+    assert s["conversion_of_attempts"] == 1.0
+    assert s["recent"][-1]["tx"] == "0xtx"
+    assert s["recent"][-1]["payer"] == "0xBuyer"
+
+
+def test_free_quota_call_is_its_own_stage(client, monkeypatch):
+    _enable(monkeypatch, free_per_day=1)
+    r = client.post("/check", json=PAID)
+    assert r.status_code == 200
+    assert funnel.summary()["stages"]["free"] == 1
+
+
+def test_v1_dialect_is_recorded_when_a_v1_buyer_pays(client, monkeypatch):
+    """Which dialect buyers actually speak decides whether v1 compat is worth carrying."""
+    _enable(monkeypatch)
+    monkeypatch.setattr(app_mod.x402, "_facilitator_post", _facilitator())
+    client.post("/check", json=PAID, headers={"X-PAYMENT": _payment(version=1)})
+    assert funnel.summary()["recent"][-1]["dialect"] == "v1"
+
+
+# ---- the durable copy -------------------------------------------------------
+
+def test_events_append_to_the_jsonl_log_when_configured(client, monkeypatch, tmp_path):
+    dest = tmp_path / "funnel.jsonl"
+    monkeypatch.setenv("GROUNDCHECK_FUNNEL_LOG", str(dest))
+    _enable(monkeypatch)
+    client.post("/check", json=PAID, headers={"User-Agent": "MysteryBuyer/2.0"})
+    lines = [json.loads(x) for x in dest.read_text().splitlines() if x.strip()]
+    assert len(lines) == 1
+    assert lines[0]["stage"] == "unpaid"
+    assert lines[0]["caller"] == "unknown"
+    assert lines[0]["path"] == "/check"
+
+
+def test_an_unwritable_log_never_breaks_a_paid_call(client, monkeypatch):
+    """Observability is strictly best-effort: a bad log path must not cost a sale."""
+    monkeypatch.setenv("GROUNDCHECK_FUNNEL_LOG", "/nonexistent-dir/funnel.jsonl")
+    _enable(monkeypatch)
+    monkeypatch.setattr(app_mod.x402, "_facilitator_post", _facilitator())
+    r = client.post("/check", json=PAID, headers={"X-PAYMENT": _payment()})
+    assert r.status_code == 200
+    assert "X-PAYMENT-RESPONSE" in r.headers
+
+
+# ---- the operator surface ---------------------------------------------------
+
+def test_ops_endpoint_is_invisible_without_a_token(client, monkeypatch):
+    _enable(monkeypatch)
+    assert client.get("/ops/funnel").status_code == 404
+
+
+def test_ops_endpoint_404s_on_a_wrong_token_rather_than_401(client, monkeypatch):
+    """A 401 would confirm the surface exists; revenue counts are not public."""
+    _enable(monkeypatch)
+    monkeypatch.setenv("GROUNDCHECK_OPS_TOKEN", OPS_TOKEN)
+    assert client.get("/ops/funnel", params={"token": "wrong"}).status_code == 404
+    assert client.get("/ops/funnel",
+                      headers={"X-Ops-Token": "also-wrong-len"}).status_code == 404
+
+
+def test_ops_endpoint_serves_the_summary_with_the_token(client, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("GROUNDCHECK_OPS_TOKEN", OPS_TOKEN)
+    client.post("/check", json=PAID, headers={"User-Agent": "MysteryBuyer/2.0"})
+    for auth in ({"X-Ops-Token": OPS_TOKEN},
+                 {"Authorization": f"Bearer {OPS_TOKEN}"}):
+        r = client.get("/ops/funnel", headers=auth)
+        assert r.status_code == 200
+        assert r.json()["stages"]["unpaid"] == 1
+        assert r.json()["unidentified_unpaid_posts"] == 1
+
+
+def test_ops_summary_is_not_in_the_public_openapi(client, monkeypatch):
+    _enable(monkeypatch)
+    assert "/ops/funnel" not in client.get("/openapi.json").json()["paths"]
+
+
+# ---- MCP transport shares the funnel ----------------------------------------
+
+def test_paid_mcp_tool_call_is_recorded_under_the_mcp_transport(client, monkeypatch):
+    _enable(monkeypatch)
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "check_citations", "arguments": {"text": TEXT}}}
+    r = client.post("/mcp", json=body, headers={"User-Agent": "MysteryBuyer/2.0"})
+    assert r.status_code == 402
+    s = funnel.summary()
+    assert s["by_path"]["mcp:/check:unpaid"] == 1
