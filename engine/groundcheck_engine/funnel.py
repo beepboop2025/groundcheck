@@ -53,19 +53,35 @@ ATTEMPT_STAGES = ("malformed", "verify_fail", "settle_fail", "paid")
 
 _MAX_RECENT = 200
 
-# Known non-buyer traffic, by User-Agent substring (lowercased), observed in
-# production. Keep this list evidence-based: add a pattern only after seeing the
-# agent in the logs, because a wrong entry silently hides real demand.
+# Known non-buyer traffic, by User-Agent substring (lowercased). Every entry below
+# was taken from this service's own access logs, because a wrong entry silently
+# hides real demand and a missing one invents it. The list is long for a reason:
+# a census of the retained log window found more than twenty distinct probes,
+# monitors, graders and indexes calling the paid routes, and not one buyer. If a
+# bucket looks over-eager, check the logs before trimming it.
 _KNOWN_CALLERS = (
     # (substring, bucket)
     ("carbonmonitor", "monitor"),
     ("x402-observer", "monitor"),
+    ("forum-labs-trust-prober", "monitor"),
+    ("attester.dev-watchtower", "monitor"),
+    ("x402-reliability-probe", "monitor"),
+    ("trustbench-prober", "monitor"),
+    ("entropy-daemon-trust-oracle", "monitor"),
+    ("nitrograph-healthcheck", "monitor"),
+    ("railscope-verifier", "monitor"),
+    ("preflight402-probe", "monitor"),
     ("uptime", "monitor"),
     ("healthcheck", "monitor"),
+    ("sla probe", "monitor"),
     ("pingdom", "monitor"),
     ("betteruptime", "monitor"),
     ("coinbasebazaardiscovery", "indexer"),
     ("agentreeve", "indexer"),
+    ("agent402", "indexer"),
+    ("402explorer", "indexer"),
+    ("x402scout", "indexer"),
+    ("agent-tools.cloud-crawler", "indexer"),
     ("x402-census", "indexer"),
     ("x402register", "indexer"),
     ("x402stats", "indexer"),
@@ -73,6 +89,12 @@ _KNOWN_CALLERS = (
     ("x402-list", "indexer"),
     ("litebeam", "indexer"),
     ("bazaar", "indexer"),
+    ("crawler", "indexer"),
+    # Our own fleet: sibling products call this service, and their traffic is
+    # neither demand nor infrastructure.
+    ("undertow-mm", "internal"),
+    ("liquilens", "internal"),
+    ("seiche", "internal"),
     ("gptbot", "crawler"),
     ("claudebot", "crawler"),
     ("perplexitybot", "crawler"),
@@ -109,6 +131,13 @@ _BUYER_HINTS = ("x402", "axios", "node-fetch", "undici", "httpx", "requests",
                 "python-httpx", "aiohttp", "agentkit", "mcp", "openai", "anthropic",
                 "langchain", "llamaindex", "crewai")
 
+# Exact User-Agents that are weak but real buyer signals. The legacy x402 client
+# line calls through global fetch, which identifies itself as bare "node" and as
+# nothing else, so a bare runtime UA is the shape an actual v1 buyer would arrive
+# in. Matched exactly, never as a substring, because "node" appears inside plenty
+# of crawler strings that are not buyers.
+_BUYER_RUNTIMES = ("node", "undici", "deno", "bun")
+
 _lock = threading.Lock()
 _counts: Counter = Counter()
 _by_caller: Counter = Counter()
@@ -129,6 +158,9 @@ def classify_agent(ua: str) -> str:
     low = (ua or "").lower().strip()
     if not low:
         return "unknown"
+    root = low.split("/", 1)[0].strip()
+    if root in _BUYER_RUNTIMES:
+        return "buyer-like"
     for needle, bucket in _KNOWN_CALLERS:
         if needle in low:
             return bucket
@@ -252,6 +284,12 @@ def summary() -> dict:
     unknown_unpaid = sum(v for k, v in callers.items()
                          if k.endswith(":unpaid") and k.split(":", 1)[0] in
                          ("unknown", "buyer-like"))
+    # More than twenty distinct probes, graders and indexes call the paid routes.
+    # Reported so the ratio of ecosystem infrastructure to actual buyers is visible
+    # rather than something an operator has to reconstruct from the raw log.
+    infra = sum(v for k, v in callers.items()
+                if k.split(":", 1)[0] in ("monitor", "indexer", "crawler",
+                                          "scanner", "manual", "internal"))
     ok, where = log_writable()
     return {
         "since": datetime.fromtimestamp(_started_at, timezone.utc).isoformat(timespec="seconds"),
@@ -261,6 +299,7 @@ def summary() -> dict:
         "settled": paid,
         "conversion_of_attempts": round(paid / attempts, 4) if attempts else None,
         "unidentified_unpaid_posts": unknown_unpaid,
+        "ecosystem_infrastructure_hits": infra,
         "by_caller": callers,
         "by_path": paths,
         "drop_off_reasons": reasons,

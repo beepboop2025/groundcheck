@@ -90,6 +90,46 @@ def test_unknown_agents_are_never_absorbed_into_a_catch_all():
     assert funnel.classify_agent("MysteryBuyer/2.0 (+https://example.invalid)") == "unknown"
 
 
+REAL_PROBES = [
+    "Mozilla/5.0 (compatible; Agent402/1.0; +https://github.com/MikeyPetrillo/Agent402)",
+    "CarbonMonitor/0.1 healthcheck (+https://carbon-cashmere.de)",
+    "x402-list-monitor/1.0 (+https://x402-list.com)",
+    "x402-list-assessment/1.0 (+https://x402-list.com)",
+    "preflight402-probe/0.1 (+https://github.com/chadander/preflight402)",
+    "x402-observer/1.0 (uptime+trust monitor; +https://x402.fuchss.app/trust)",
+    "402explorer/0.1 (+https://discover.paygent.net/about)",
+    "forum-labs-trust-prober/1.0 (x402 endpoint QoS monitor; +https://forum-labs.com)",
+    "attester.dev-watchtower/0.1 (sla probe)",
+    "agent-tools.cloud-crawler/0.1 (+https://agent-tools.cloud)",
+    "AgentReeve/0.1 (independent x402 index; polite daily probe)",
+    "x402Scout/1.0 (https://app-production-cd86.up.railway.app)",
+    "x402-census-probe/2.1 (independent index research)",
+    "x402-reliability-probe/1.0",
+    "entropy-daemon-trust-oracle/2.0",
+    "Nitrograph-HealthCheck/1.0 (+https://api.nitrograph.com/bot)",
+    "Mozilla/5.0 (compatible; railscope-verifier/0.2; +https://railscope)",
+    "TrustBench-Prober/1.0",
+    "CoinbaseBazaarDiscovery/1.0 (+https://docs.cdp.coinbase.com/x402)",
+    "undertow-mm/claim-gate (self-check)",
+]
+
+
+@pytest.mark.parametrize("ua", REAL_PROBES)
+def test_every_probe_seen_in_production_is_classified_as_infrastructure(ua):
+    """Verbatim User-Agents from this service's own access logs. More than twenty
+    distinct monitors, graders and indexes call the paid routes and not one of them
+    is a buyer, so any of these landing in `unknown` would fabricate demand."""
+    assert funnel.classify_agent(ua) in ("monitor", "indexer", "crawler",
+                                         "scanner", "internal"), ua
+
+
+def test_bare_runtime_user_agents_stay_buyer_like(client):
+    """The legacy x402 client calls through global fetch, which identifies itself
+    as bare `node` and nothing else — the exact shape a real v1 buyer arrives in."""
+    for ua in ("node", "Deno/2.7.4", "undici", "bun/1.2"):
+        assert funnel.classify_agent(ua) == "buyer-like", ua
+
+
 def test_operator_shell_probes_do_not_pollute_the_demand_signal(client, monkeypatch):
     """Our own curl checks would otherwise read as unidentified buyers walking away."""
     _enable(monkeypatch)
@@ -250,6 +290,33 @@ def test_ops_endpoint_404s_on_a_wrong_token_rather_than_401(client, monkeypatch)
     assert client.get("/ops/funnel", params={"token": "wrong"}).status_code == 404
     assert client.get("/ops/funnel",
                       headers={"X-Ops-Token": "also-wrong-len"}).status_code == 404
+
+
+def test_conformance_graders_never_get_a_free_200_even_when_a_quota_is_on(
+        client, monkeypatch):
+    """The free tier was switched off in production because a 200 on an unpaid POST
+    reads as not-x402 to the graders and de-lists the service. Excluding recognised
+    infrastructure makes the knob safe to turn on: graders keep seeing a clean 402
+    while a caller that might actually buy can evaluate the output first."""
+    _enable(monkeypatch, free_per_day=3)
+    for ua in ("x402-list-assessment/1.0 (+https://x402-list.com)",
+               "CoinbaseBazaarDiscovery/1.0 (+https://docs.cdp.coinbase.com/x402)",
+               "Mozilla/5.0 (compatible; Agent402/1.0; +https://github.com/x/Agent402)"):
+        r = client.post("/check", json=PAID, headers={"User-Agent": ua})
+        assert r.status_code == 402, ua
+    # ...while an unrecognised caller gets the trial
+    r = client.post("/check", json=PAID, headers={"User-Agent": "MysteryBuyer/2.0"})
+    assert r.status_code == 200
+    assert r.headers["X-Groundcheck-Free-Remaining"] == "2"
+
+
+def test_infrastructure_share_is_reported_so_the_ratio_is_visible(client, monkeypatch):
+    _enable(monkeypatch)
+    client.post("/check", json=PAID, headers={"User-Agent": "CarbonMonitor/0.1"})
+    client.post("/check", json=PAID, headers={"User-Agent": "MysteryBuyer/2.0"})
+    s = funnel.summary()
+    assert s["ecosystem_infrastructure_hits"] == 1
+    assert s["unidentified_unpaid_posts"] == 1
 
 
 def test_ops_endpoint_serves_the_summary_with_the_token(client, monkeypatch):

@@ -164,9 +164,22 @@ async def rate_limit(request: Request, call_next):
 _free_used: Dict[str, List[int]] = {}
 
 
-def _free_quota_take(ip: str) -> int | None:
-    """Consume one free paid-endpoint call; remaining count, or None if dry."""
+def _free_quota_take(ip: str, ua: str = "") -> int | None:
+    """Consume one free paid-endpoint call; remaining count, or None if dry.
+
+    The free tier has been switched off in production because a 200 on an unpaid
+    POST reads as not-x402 to the conformance graders and de-lists the service —
+    which also removes the only way an agent can judge output quality before
+    funding a wallet. Both cannot be true at once, so the quota now excludes
+    callers the funnel already recognises as ecosystem infrastructure. More than
+    twenty distinct monitors, graders and indexes call these routes; every one of
+    them keeps seeing a clean 402, and a caller that might actually buy can try
+    the thing first. Unrecognised callers get the quota, which is the point.
+    """
     if config.X402_FREE_PER_DAY <= 0:
+        return None
+    if funnel.classify_agent(ua) in ("monitor", "indexer", "crawler",
+                                     "scanner", "internal"):
         return None
     day = int(time.time() // 86400)
     rec = _free_used.get(ip)
@@ -243,7 +256,7 @@ async def x402_gate(request: Request, call_next):
     raw = x402.payment_header(request.headers)
 
     if raw is None:  # unpaid: free daily quota, then 402 with the offer
-        remaining = _free_quota_take(ip)
+        remaining = _free_quota_take(ip, ua)
         if remaining is None:
             seen("unpaid", reason="no payment header")
             return _pay_402(path, resource, _unpaid_reason(path))
@@ -728,7 +741,7 @@ async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response
         raw = x402.payment_header(request.headers)
         if raw is None:
             ip = _client_ip(request)
-            if _free_quota_take(ip) is None:
+            if _free_quota_take(ip, request.headers.get("User-Agent", "")) is None:
                 seen("unpaid", reason="no payment header")
                 return _mcp_pay_402(
                     msg_id, path, resource,
