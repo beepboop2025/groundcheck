@@ -89,6 +89,11 @@ _KNOWN_CALLERS = (
     ("httpie", "manual"),
     ("insomnia", "manual"),
     ("postman", "manual"),
+    # A pinned old axios build is a fixed-version crawler, not an agent: the real
+    # buyer package (x402-axios) depends on axios ^1.7.9, which resolves to the
+    # current release on a fresh install. Listed ahead of the bare "axios" buyer
+    # hint below, which would otherwise invent demand out of census traffic.
+    ("axios/1.14.0", "indexer"),
     ("censys", "scanner"),
     ("masscan", "scanner"),
     ("zgrab", "scanner"),

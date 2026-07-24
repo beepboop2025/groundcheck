@@ -84,6 +84,23 @@ def test_free_quota_counts_down_then_402(client, monkeypatch):
     assert "quota" in body["error"]
 
 
+def test_paywall_copy_names_the_price_and_the_free_way_to_evaluate(client, monkeypatch):
+    """With no quota configured, "free daily quota exhausted" told a first-time
+    caller to come back tomorrow for an allowance that does not exist, and never
+    mentioned that the output can be evaluated for free before funding a wallet."""
+    _enable(monkeypatch, free_per_day=0)
+    err = client.post("/check", json=PAID).json()["error"]
+    assert "quota" not in err
+    assert "$0.02 per call" in err
+    assert "/verify" in err, "an agent must be told how to try before it buys"
+
+
+def test_paywall_copy_still_says_quota_when_a_quota_exists(client, monkeypatch):
+    _enable(monkeypatch, free_per_day=1)
+    client.post("/check", json=PAID)                       # burn the allowance
+    assert "quota exhausted" in client.post("/check", json=PAID).json()["error"]
+
+
 def test_402_header_is_v2_native(client, monkeypatch):
     """v2 lives in the PAYMENT-REQUIRED header, which is the only place a v2 client
     looks: it returns from the header branch before the body is ever read."""

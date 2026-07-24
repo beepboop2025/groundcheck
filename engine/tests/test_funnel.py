@@ -73,7 +73,9 @@ def _facilitator(verify_ok=True, settle_ok=True):
     ("AgentReeve/0.1 (independent x402 index; polite daily probe)", "indexer"),
     ("x402-census-probe/2.1 (independent index research)", "indexer"),
     ("ClaudeBot/1.0", "crawler"),
-    ("axios/1.14.0", "buyer-like"),
+    # A pinned old axios is census traffic; x402-axios floats to current axios.
+    ("axios/1.14.0", "indexer"),
+    ("axios/1.18.1", "buyer-like"),
     ("x402-fetch/0.6.1", "buyer-like"),
     ("curl/8.7.1", "manual"),
     ("", "unknown"),

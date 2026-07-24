@@ -166,8 +166,8 @@ recalibrate with domain claims before leaning on it in a new domain.
 A hosted engine can charge AI agents per call in USDC over the
 [x402 protocol](https://x402.org) — HTTP 402 + signed transfer authorization,
 no accounts or API keys. Dormant unless `GROUNDCHECK_X402_PAY_TO` is set;
-`/verify` stays free forever, the paid surface gets a free daily quota per IP
-first and prices as a granular verification loop: **extract $0.005 → ground
+`/verify` stays free forever and is the way to evaluate output before paying;
+the paid surface prices as a granular verification loop: **extract $0.005 → ground
 $0.02 → delivery-attestation bundle $0.05** (plus `/resolve` at $0.005).
 Both protocol generations (v1 and v2) are accepted, and agents can read the
 offer at `GET /.well-known/x402`. Full operator guide: [docs/x402.md](docs/x402.md).

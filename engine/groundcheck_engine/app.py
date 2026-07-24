@@ -179,6 +179,27 @@ def _free_quota_take(ip: str) -> int | None:
     return config.X402_FREE_PER_DAY - rec[1]
 
 
+def _unpaid_reason(path: str, what: str = "") -> str:
+    """What to tell a caller that reached the paywall without paying.
+
+    The old copy said "free daily quota exhausted" unconditionally. On this
+    deployment the quota is zero by design — a 200 on an unpaid POST reads as
+    not-x402 to the conformance graders and gets the service de-listed — so that
+    sentence told every first-time caller to come back tomorrow for an allowance
+    that does not exist, instead of telling it the route is priced and that there
+    is a free way to evaluate the output first.
+    """
+    subject = what or f"{path} is a paid route"
+    price = x402.price_usd(path)
+    priced = f" (${price:g} per call, USDC on Base)" if price is not None else ""
+    if config.X402_FREE_PER_DAY > 0:
+        return (f"{subject}{priced} — free daily quota exhausted; "
+                "pay per call via x402")
+    return (f"{subject}{priced} — pay per call via x402. To evaluate output "
+            "quality first at no cost, POST /verify with a single claim, or "
+            "GET /search; both are free and always will be.")
+
+
 def _pay_402(path: str, resource: str, error: str) -> JSONResponse:
     body, headers = x402.payment_required(path, resource, error)
     return JSONResponse(body, status_code=402, headers=headers)
@@ -225,8 +246,7 @@ async def x402_gate(request: Request, call_next):
         remaining = _free_quota_take(ip)
         if remaining is None:
             seen("unpaid", reason="no payment header")
-            return _pay_402(path, resource,
-                            "free daily quota exhausted — pay per call via x402")
+            return _pay_402(path, resource, _unpaid_reason(path))
         seen("free", reason=f"{remaining} left today")
         resp = await call_next(request)
         resp.headers["X-Groundcheck-Free-Remaining"] = str(remaining)
@@ -710,9 +730,10 @@ async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response
             ip = _client_ip(request)
             if _free_quota_take(ip) is None:
                 seen("unpaid", reason="no payment header")
-                return _mcp_pay_402(msg_id, path, resource,
-                                    f"{mcp_http.tool_name(single)} is a paid tool — "
-                                    "free daily quota exhausted")
+                return _mcp_pay_402(
+                    msg_id, path, resource,
+                    _unpaid_reason(path,
+                                   f"{mcp_http.tool_name(single)} is a paid tool"))
             seen("free")
         else:
             payment = x402.decode_payment(raw)
