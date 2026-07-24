@@ -72,6 +72,7 @@ def _facilitator(verify_ok=True, settle_ok=True):
     ("ClaudeBot/1.0", "crawler"),
     ("axios/1.14.0", "buyer-like"),
     ("x402-fetch/0.6.1", "buyer-like"),
+    ("curl/8.7.1", "manual"),
     ("", "unknown"),
     ("SomeThingNobodyHasSeen/9", "unknown"),
 ])
@@ -82,6 +83,15 @@ def test_classify_agent(ua, bucket):
 def test_unknown_agents_are_never_absorbed_into_a_catch_all():
     """A new real buyer must surface as `unknown`, not be silently bucketed as a bot."""
     assert funnel.classify_agent("MysteryBuyer/2.0 (+https://example.invalid)") == "unknown"
+
+
+def test_operator_shell_probes_do_not_pollute_the_demand_signal(client, monkeypatch):
+    """Our own curl checks would otherwise read as unidentified buyers walking away."""
+    _enable(monkeypatch)
+    client.post("/check", json=PAID, headers={"User-Agent": "curl/8.7.1"})
+    s = funnel.summary()
+    assert s["stages"]["unpaid"] == 1
+    assert s["unidentified_unpaid_posts"] == 0
 
 
 # ---- one distinguishable trace per outcome ----------------------------------

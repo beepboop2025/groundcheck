@@ -81,6 +81,14 @@ _KNOWN_CALLERS = (
     ("googlebot", "crawler"),
     ("semrush", "crawler"),
     ("ahrefs", "crawler"),
+    # Hand-driven probes, including the operator's own. Kept out of `unknown`
+    # because a real buyer must sign an EIP-3009 authorization, which in practice
+    # means an SDK — nobody pays from a shell one-liner.
+    ("curl/", "manual"),
+    ("wget", "manual"),
+    ("httpie", "manual"),
+    ("insomnia", "manual"),
+    ("postman", "manual"),
     ("censys", "scanner"),
     ("masscan", "scanner"),
     ("zgrab", "scanner"),
@@ -106,7 +114,8 @@ _started_at = time.time()
 
 
 def classify_agent(ua: str) -> str:
-    """Bucket a User-Agent: monitor | indexer | crawler | scanner | buyer-like | unknown.
+    """Bucket a User-Agent: monitor | indexer | crawler | scanner | manual |
+    buyer-like | unknown.
 
     Deliberately conservative. Anything unrecognised lands in `unknown`, which is the
     bucket the operator is supposed to read, so a new real buyer surfaces rather than
@@ -180,7 +189,8 @@ def record(stage: str,
             # Keep the tail interesting: routine unpaid probes from known
             # infrastructure would otherwise evict every real signal.
             if stage != "probe" and not (stage == "unpaid" and caller in
-                                         ("monitor", "indexer", "crawler", "scanner")):
+                                         ("monitor", "indexer", "crawler",
+                                          "scanner", "manual")):
                 _recent.append(event)
 
         dest = _log_path()
