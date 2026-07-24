@@ -140,11 +140,41 @@ def payment_dialect(payment: Optional[dict]) -> str:
 
 
 def _log_path() -> Optional[str]:
-    """Read the env each call, so an operator can turn the file log on or off with a
-    restart-free `systemctl set-environment` style change without a code path caching
-    the old answer."""
+    """Where the durable copy goes, resolved fresh each call so an operator can turn
+    the file log on or off without a code path caching the old answer.
+
+    Falls back to systemd's $STATE_DIRECTORY because the deployment is a hardened
+    unit (ProtectHome=read-only, ProtectSystem=strict) where almost nothing is
+    writable. Pointing the log at a path the service cannot write is a silent no-op
+    by design — record() must never raise — so the default has to be a path systemd
+    itself guarantees, not one an operator has to guess.
+    """
     raw = os.environ.get("GROUNDCHECK_FUNNEL_LOG", "").strip()
-    return raw or None
+    if raw:
+        return raw
+    state = os.environ.get("STATE_DIRECTORY", "").strip()
+    if state:
+        # systemd passes a colon-separated list when several are configured.
+        return os.path.join(state.split(":")[0], "funnel.jsonl")
+    return None
+
+
+def log_writable() -> tuple[bool, str]:
+    """Can the durable log actually be written? For the operator summary only.
+
+    record() deliberately swallows write failures, which means a misconfigured path
+    looks exactly like an idle service. This is the loud channel that distinguishes
+    them, and it is why /ops/funnel reports it rather than just the path.
+    """
+    dest = _log_path()
+    if not dest:
+        return False, "disabled (no GROUNDCHECK_FUNNEL_LOG or STATE_DIRECTORY)"
+    try:
+        with open(dest, "a", encoding="utf-8"):
+            pass
+        return True, dest
+    except OSError as exc:
+        return False, f"{dest}: {type(exc).__name__}: {exc}"
 
 
 def record(stage: str,
@@ -217,6 +247,7 @@ def summary() -> dict:
     unknown_unpaid = sum(v for k, v in callers.items()
                          if k.endswith(":unpaid") and k.split(":", 1)[0] in
                          ("unknown", "buyer-like"))
+    ok, where = log_writable()
     return {
         "since": datetime.fromtimestamp(_started_at, timezone.utc).isoformat(timespec="seconds"),
         "uptime_s": int(time.time() - _started_at),
@@ -229,7 +260,8 @@ def summary() -> dict:
         "by_path": paths,
         "drop_off_reasons": reasons,
         "recent": recent[-50:],
-        "log_file": _log_path(),
+        "log_ok": ok,
+        "log_file": where,
     }
 
 

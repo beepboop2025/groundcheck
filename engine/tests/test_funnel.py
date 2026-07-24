@@ -30,6 +30,9 @@ def client(monkeypatch):
     monkeypatch.delenv("GROUNDCHECK_X402_PAY_TO", raising=False)
     monkeypatch.delenv("GROUNDCHECK_FUNNEL_LOG", raising=False)
     monkeypatch.delenv("GROUNDCHECK_OPS_TOKEN", raising=False)
+    # Hermetic: a test run inside a systemd unit would otherwise inherit a real
+    # StateDirectory and start appending to production's durable log.
+    monkeypatch.delenv("STATE_DIRECTORY", raising=False)
     app_mod._free_used.clear()
     app_mod._hits.clear()
     funnel.reset()
@@ -204,6 +207,31 @@ def test_an_unwritable_log_never_breaks_a_paid_call(client, monkeypatch):
     r = client.post("/check", json=PAID, headers={"X-PAYMENT": _payment()})
     assert r.status_code == 200
     assert "X-PAYMENT-RESPONSE" in r.headers
+
+
+def test_an_unwritable_log_is_reported_loudly_to_the_operator(client, monkeypatch):
+    """The production unit is hardened (ProtectHome=read-only), so an unwritable path
+    is a live failure mode, and silence there looks identical to an idle service."""
+    monkeypatch.setenv("GROUNDCHECK_FUNNEL_LOG", "/nonexistent-dir/funnel.jsonl")
+    s = funnel.summary()
+    assert s["log_ok"] is False
+    assert "nonexistent-dir" in s["log_file"]
+
+
+def test_state_directory_is_the_default_log_home_under_systemd(monkeypatch, tmp_path):
+    """StateDirectory= is the one path a hardened unit is guaranteed to be able to
+    write, so it is the default rather than something an operator has to discover."""
+    monkeypatch.delenv("GROUNDCHECK_FUNNEL_LOG", raising=False)
+    monkeypatch.setenv("STATE_DIRECTORY", f"{tmp_path}:/some/other/dir")
+    ok, where = funnel.log_writable()
+    assert ok is True
+    assert where == str(tmp_path / "funnel.jsonl")
+
+
+def test_explicit_log_path_wins_over_state_directory(monkeypatch, tmp_path):
+    monkeypatch.setenv("STATE_DIRECTORY", str(tmp_path))
+    monkeypatch.setenv("GROUNDCHECK_FUNNEL_LOG", str(tmp_path / "explicit.jsonl"))
+    assert funnel.log_writable()[1] == str(tmp_path / "explicit.jsonl")
 
 
 # ---- the operator surface ---------------------------------------------------
