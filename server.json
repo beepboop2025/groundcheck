@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "io.github.beepboop2025/groundcheck",
-  "description": "Verify factual claims (verdict + citations) and resolve securities to FIGI identity over MCP.",
+  "description": "Verify claims, resolve FIGI identity, extract claims, and sign x402 delivery receipts over MCP.",
   "repository": {
     "url": "https://github.com/beepboop2025/groundcheck",
     "source": "github"
   },
-  "version": "0.4.0",
+  "version": "0.6.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "groundcheck-mcp",
-      "version": "0.4.0",
+      "version": "0.6.0",
       "transport": {
         "type": "stdio"
       },

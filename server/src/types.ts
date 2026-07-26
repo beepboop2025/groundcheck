@@ -109,3 +109,37 @@ export interface CheckResult {
   // See VerifyResult.attestation.
   attestation?: Record<string, unknown> | null;
 }
+
+export interface ExtractResult {
+  count: number;
+  claims: string[];
+  method: string;
+  input_sha256: string;
+  // Signed receipt (kind "extract") bound to the input hash.
+  attestation?: Record<string, unknown> | null;
+}
+
+export type DeliveryVerdict = "consistent" | "degraded" | "inconsistent" | "unverifiable";
+
+export interface DeliveryResult {
+  service: string;
+  delivery_verdict: DeliveryVerdict;
+  rationale: string;
+  response_sha256: string;
+  request_sha256?: string | null;
+  grounding: Record<string, unknown>;
+  conformance: { checked: boolean; valid?: boolean | null; problems: string[] };
+  payment: {
+    bound: boolean;
+    receipt_sha256?: string | null;
+    network?: string | null;
+    transaction?: string | null;
+    payer?: string | null;
+    success?: boolean | null;
+    problems: string[];
+  };
+  backend: string;
+  classifier: string;
+  // Signed receipt (kind "delivery") over a deterministic subset.
+  attestation?: Record<string, unknown> | null;
+}

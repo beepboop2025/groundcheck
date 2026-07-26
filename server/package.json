@@ -1,7 +1,7 @@
 {
   "name": "groundcheck-mcp",
-  "version": "0.4.0",
-  "description": "The grounding check agents run before they commit to an answer: an MCP server that verifies a factual claim against live sources and returns a verdict, confidence, and citations.",
+  "version": "0.6.0",
+  "description": "The grounding check agents run before they commit to an answer: an MCP server that verifies factual claims against live sources (verdict, confidence, citations), resolves securities to FIGI identity, extracts atomic claims, and signs offline-verifiable delivery receipts for x402 purchases.",
   "mcpName": "io.github.beepboop2025/groundcheck",
   "repository": {
     "type": "git",
