@@ -6,7 +6,14 @@
     "url": "https://github.com/beepboop2025/groundcheck",
     "source": "github"
   },
-  "version": "0.6.0",
+  "websiteUrl": "https://groundcheck.seiche.info",
+  "version": "0.6.1",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://groundcheck.seiche.info/mcp"
+    }
+  ],
   "packages": [
     {
       "registryType": "npm",
