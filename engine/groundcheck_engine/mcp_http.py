@@ -27,7 +27,7 @@ from . import config, x402
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "groundcheck"
-SERVER_VERSION = "0.6.1"
+SERVER_VERSION = "0.7.0"
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -267,6 +267,67 @@ TOOLS: list[dict] = [
     },
 ]
 
+# Titles + behaviour annotations, applied in one sweep so a new tool cannot
+# ship without them. Retrieval-backed tools reach the open web (openWorld);
+# extract_claims is pure local text processing. Nothing here mutates state.
+_TOOL_TITLES = {
+    "verify_claim": "Verify one claim (free)",
+    "check_citations": "Fact-check a whole draft",
+    "resolve_instrument": "Resolve a security to FIGI",
+    "extract_claims": "Extract atomic claims",
+    "attest_delivery": "Attest an x402 delivery",
+}
+_LOCAL_ONLY = {"extract_claims"}
+for _t in TOOLS:
+    _t["title"] = _TOOL_TITLES.get(_t["name"], _t["name"])
+    _t["annotations"] = {
+        "title": _t["title"],
+        "readOnlyHint": True,
+        "idempotentHint": True,
+        "destructiveHint": False,
+        "openWorldHint": _t["name"] not in _LOCAL_ONLY,
+    }
+del _t
+
+# Prompts: playbooks MCP clients surface as slash commands. They lead with
+# the free tool; the paid bundle appears only where the receipt is the point.
+PROMPTS = {
+    "ground_before_answering": (
+        "Ground a claim before asserting it",
+        "Verify a factual claim with the free tool and branch on the "
+        "machine-readable fields instead of vibes.",
+        [{"name": "claim",
+          "description": "The claim as one declarative sentence.",
+          "required": True}],
+        lambda a: (
+            f"Verify this claim with verify_claim: {a.get('claim', '')!r}. "
+            "Then branch exactly on the fields: assert it only if verdict "
+            "is 'supported' AND sufficiency is 'sufficient' (cite the "
+            "sources returned); abstain and say why on 'insufficient', "
+            "'no_sources', 'no_stance' or 'conflict'; treat "
+            "guarantee.certified true as a calibrated error bound you may "
+            "gate decisions on. Report the receipt id so the check is "
+            "provable later."
+        ),
+    ),
+    "pre_publish_gate": (
+        "Gate a draft before publishing",
+        "Run every factual claim in a draft through verification and get a "
+        "per-claim fix list with a signed receipt bound to the text.",
+        [],
+        lambda a: (
+            "Take the draft I provide and gate it before publication: run "
+            "check_citations on the full text (paid, x402 — it returns a "
+            "signed receipt bound to a hash of the exact text; if paying "
+            "is not possible, fall back to verify_claim on each factual "
+            "sentence, free). Produce a per-claim table: claim, verdict, "
+            "sufficiency, and the fix (cite, soften, or delete). A claim "
+            "that is not 'supported'+'sufficient' does not ship as fact. "
+            "End with the receipt id and what it proves."
+        ),
+    ),
+}
+
 
 def _result(msg_id: Any, result: Any) -> dict:
     return {"jsonrpc": "2.0", "id": msg_id, "result": result}
@@ -351,8 +412,10 @@ def _handle_initialize(msg_id: Any, params: dict) -> dict:
     requested = params.get("protocolVersion")
     return _result(msg_id, {
         "protocolVersion": requested if isinstance(requested, str) else PROTOCOL_VERSION,
-        "capabilities": {"tools": {}},
-        "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+        "capabilities": {"tools": {}, "prompts": {}},
+        "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION,
+                       "title": "groundcheck — decision-grade fact verification",
+                       "websiteUrl": "https://groundcheck.seiche.info"},
         "instructions": (
             "Ground claims before asserting them (verify_claim), verify a whole draft "
             "(check_citations), resolve which security a claim is about "
@@ -401,7 +464,25 @@ async def dispatch(msg: Any, handlers: dict[str, Callable[..., Awaitable[Any]]])
     if method == "resources/list":
         return _result(msg_id, {"resources": []})
     if method == "prompts/list":
-        return _result(msg_id, {"prompts": []})
+        return _result(msg_id, {"prompts": [
+            {"name": n, "title": t, "description": d, "arguments": args}
+            for n, (t, d, args, _fn) in PROMPTS.items()]})
+    if method == "prompts/get":
+        name = params.get("name")
+        entry = PROMPTS.get(name) if isinstance(name, str) else None
+        if entry is None:
+            return _error(msg_id, INVALID_PARAMS, f"unknown prompt: {name}")
+        _t, desc, args_spec, fn = entry
+        p_args = params.get("arguments")
+        if not isinstance(p_args, dict):
+            p_args = {}
+        missing = [a["name"] for a in args_spec
+                   if a.get("required") and not p_args.get(a["name"])]
+        if missing:
+            return _error(msg_id, INVALID_PARAMS,
+                          "missing required argument(s): " + ", ".join(missing))
+        return _result(msg_id, {"description": desc, "messages": [
+            {"role": "user", "content": {"type": "text", "text": fn(p_args)}}]})
     if method != "tools/call":
         return _error(msg_id, METHOD_NOT_FOUND, f"method not found: {method}")
 
