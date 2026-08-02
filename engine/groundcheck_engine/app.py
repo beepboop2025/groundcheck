@@ -218,18 +218,6 @@ def _pay_402(path: str, resource: str, error: str) -> JSONResponse:
     return JSONResponse(body, status_code=402, headers=headers)
 
 
-def _mcp_pay_402(msg_id, path: str, resource: str, error: str) -> JSONResponse:
-    """The same offer, shaped for a JSON-RPC caller.
-
-    HTTP 402 is right for the REST paths and wrong for /mcp: the streamable-HTTP
-    transport raises on any non-2xx, so the SDK client throws before a result exists
-    and the agent never sees the offer. See mcp_http.payment_required_result.
-    """
-    body, headers = x402.payment_required(path, resource, error)
-    return JSONResponse(mcp_http.payment_required_result(msg_id, body, error),
-                        status_code=200, headers=headers)
-
-
 # Registered after rate_limit, so it runs OUTSIDE it: payment is decided
 # first, and verified payers skip the free-surface rate limit entirely.
 @app.middleware("http")
@@ -710,6 +698,113 @@ async def mcp_get() -> JSONResponse:
     })
 
 
+# Every token _mcp_shape can emit comes from one of these two sets, plus
+# "other" and "malformed".
+_MCP_TOOL_NAMES = frozenset(t["name"] for t in mcp_http.TOOLS)
+_MCP_METHODS = frozenset({
+    "initialize", "ping", "tools/list", "tools/call", "resources/list",
+    "resources/templates/list", "resources/read", "prompts/list", "prompts/get",
+    "completion/complete", "logging/setLevel",
+    "notifications/initialized", "notifications/cancelled",
+})
+_MCP_SHAPE_TOKENS = 3
+
+
+def _mcp_tool_name(msg: Any) -> str | None:
+    """The tool a message calls, or None.
+
+    Every level is caller-supplied and none of it is guaranteed to be the type
+    it should be: the message, params, and the name itself.
+    """
+    if not isinstance(msg, dict) or msg.get("method") != "tools/call":
+        return None
+    params = msg.get("params")
+    if not isinstance(params, dict):
+        return None
+    name = params.get("name")
+    return name if isinstance(name, str) else None
+
+
+def _mcp_priced(msg: Any) -> str | None:
+    """The REST path a message is priced as, or None if it owes nothing.
+
+    Charged only for messages mcp_http.dispatch will actually run a handler for.
+    A notification carries no id and a message that is not JSON-RPC 2.0 is
+    refused, and dispatch returns for both before reaching the handler, so
+    neither buys anything and neither may be metered.
+    """
+    if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0" or "id" not in msg:
+        return None
+    return mcp_http.TOOL_PRICED_AS.get(_mcp_tool_name(msg))
+
+
+def _mcp_shape(msgs: List[Any]) -> str:
+    """What a body asked for, as a bounded set of known tokens.
+
+    This string becomes a key in funnel's reason counter, which never evicts, so
+    it may not carry caller text: an unrecognised method or tool buckets as
+    "other", and the token set is truncated rather than joined in full.
+    """
+    tokens = set()
+    for m in msgs[:mcp_http.MAX_BATCH]:
+        if not isinstance(m, dict):
+            tokens.add("malformed")
+            continue
+        method = m.get("method")
+        if method == "tools/call":
+            name = _mcp_tool_name(m)
+            tokens.add(name if name in _MCP_TOOL_NAMES else "other")
+        elif isinstance(method, str) and method in _MCP_METHODS:
+            tokens.add(method)
+        else:
+            tokens.add("other")
+    ordered = sorted(tokens)
+    if len(ordered) > _MCP_SHAPE_TOKENS:
+        return ",".join(ordered[:_MCP_SHAPE_TOKENS]) + ",..."
+    return ",".join(ordered)
+
+
+def _mcp_offer(msg: Any, path: str, resource: str, error: str) -> Tuple[dict, dict]:
+    """One blocked message's x402 offer: (JSON-RPC result, response headers).
+
+    HTTP 402 is right for the REST paths and wrong for /mcp: the streamable-HTTP
+    transport raises on any non-2xx, so the SDK client throws before a result exists
+    and the agent never sees the offer. See mcp_http.payment_required_result.
+    """
+    offer, headers = x402.payment_required(path, resource, error)
+    msg_id = msg.get("id") if isinstance(msg, dict) else None
+    return mcp_http.payment_required_result(msg_id, offer, error), headers
+
+
+async def _mcp_results(msgs: List[Any], blocked: Dict[int, dict]) -> List[Any]:
+    """One slot per message, aligned with the body: a JSON-RPC result, or None
+    for a notification, which gets no reply. A blocked message answers with its
+    offer instead of running.
+
+    Aligned rather than compacted so a settlement that fails after dispatch can
+    swap the offer in without running the rest of the batch a second time.
+    """
+    out: List[Any] = []
+    for i, m in enumerate(msgs):
+        if i in blocked:
+            out.append(blocked[i])
+            continue
+        r = await mcp_http.dispatch(m, _MCP_HANDLERS)
+        if (r is not None and x402.enabled() and isinstance(m, dict)
+                and m.get("method") == "tools/list"):
+            r = mcp_http.annotate_tools_list(r)
+        out.append(r)
+    return out
+
+
+def _mcp_response(body: Any, slots: List[Any], headers: dict) -> Response:
+    results = [r for r in slots if r is not None]
+    if not results:                         # notification-only body
+        return Response(status_code=202)
+    payload = results if isinstance(body, list) else results[0]
+    return JSONResponse(payload, headers=headers or None)
+
+
 @app.post("/mcp", include_in_schema=False)
 async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response:
     if body is None:
@@ -726,66 +821,93 @@ async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response
                             f"batch too large (max {mcp_http.MAX_BATCH} messages)"),
             status_code=413)
 
+    ip = _client_ip(request)
+    ua = request.headers.get("User-Agent", "")
+    resource = str(request.url)
+    # Every message in the body is priced, not only a lone one.
+    priced = [_mcp_priced(m) for m in msgs]
+    paid_paths = [p for p in priced if p]
+    # MCP tool calls share the REST funnel and are tagged with the transport,
+    # so an operator can see which one the demand arrives on.
+    seen = functools.partial(funnel.record, method="POST", ip=ip, ua=ua)
+
+    if not (x402.enabled() and paid_paths):
+        # Every POST leaves a line, including bodies that owe nothing.
+        seen("probe", path="mcp:unpriced", reason=_mcp_shape(msgs))
+        return _mcp_response(body, await _mcp_results(msgs, {}), {})
+
+    async def refuse(error: str, stage: str, reason: str,
+                     slots: List[Any] | None = None, **fields) -> Response:
+        """Every priced message in the body answers with the offer; free ones run.
+
+        `slots` carries results the request already produced, so a refusal after
+        dispatch replaces the paid answers without re-running the free ones.
+        """
+        blocked: Dict[int, dict] = {}
+        headers: dict = {}
+        for i, p in enumerate(priced):
+            if p is None:
+                continue
+            seen(stage, path=f"mcp:{p}", reason=reason, **fields)
+            blocked[i], offer_headers = _mcp_offer(msgs[i], p, resource, error)
+            headers = headers or offer_headers
+        if slots is None:
+            slots = await _mcp_results(msgs, blocked)
+        else:
+            slots = [blocked.get(i, r) for i, r in enumerate(slots)]
+        return _mcp_response(body, slots, headers)
+
     # A paid tool call is settled BEFORE it runs, exactly like the REST paths:
     # free daily quota first, then a 402 offer, then verify + settle or nothing.
-    single = msgs[0] if len(msgs) == 1 and isinstance(msgs[0], dict) else None
-    path = mcp_http.priced_tool(single) if single is not None else None
-    if x402.enabled() and path is not None:
-        resource = str(request.url)
-        # MCP tool calls are the same funnel as the REST paths and are tagged as
-        # such, so an operator can see which transport the demand arrives on.
-        seen = functools.partial(funnel.record, path=f"mcp:{path}", method="POST",
-                                 ip=_client_ip(request),
-                                 ua=request.headers.get("User-Agent", ""))
-        msg_id = single.get("id")
-        raw = x402.payment_header(request.headers)
-        if raw is None:
-            ip = _client_ip(request)
-            if _free_quota_take(ip, request.headers.get("User-Agent", "")) is None:
-                seen("unpaid", reason="no payment header")
-                return _mcp_pay_402(
-                    msg_id, path, resource,
-                    _unpaid_reason(path,
-                                   f"{mcp_http.tool_name(single)} is a paid tool"))
-            seen("free")
-        else:
-            payment = x402.decode_payment(raw)
-            if payment is None:
-                seen("malformed", reason="payment header did not decode")
-                return _mcp_pay_402(msg_id, path, resource, "payment header malformed")
-            dialect = funnel.payment_dialect(payment)
-            price = x402.price_usd(path)
-            reqs = x402.select_requirements(payment, path, resource)
-            ok, why = x402.verify(payment, reqs)
-            if not ok:
-                seen("verify_fail", reason=why, dialect=dialect, amount_usd=price)
-                return _mcp_pay_402(msg_id, path, resource, why)
-            resp = await mcp_http.dispatch(single, _MCP_HANDLERS)
-            settled, receipt = x402.settle(payment, reqs)
-            if not settled:  # fail-closed: no settle, no result
-                seen("settle_fail",
-                     reason=str(receipt.get("errorReason") or "settlement failed"),
-                     dialect=dialect, amount_usd=price)
-                return _mcp_pay_402(msg_id, path, resource,
-                                    str(receipt.get("errorReason") or "settlement failed"))
-            seen("paid", dialect=dialect, amount_usd=price,
-                 payer=str(receipt.get("payer") or ""),
-                 tx=str(receipt.get("transaction") or ""))
-            return JSONResponse(resp, headers=x402.receipt_headers(receipt))
+    raw = x402.payment_header(request.headers)
+    if raw is None:
+        blocked: Dict[int, dict] = {}
+        headers: dict = {}
+        for i, p in enumerate(priced):
+            if p is None:
+                continue
+            # One quota unit per priced message, decided for the whole body
+            # before any of it runs, so a batch cannot outrun its own meter.
+            if _free_quota_take(ip, ua) is None:
+                seen("unpaid", path=f"mcp:{p}", reason="no payment header")
+                blocked[i], offer_headers = _mcp_offer(
+                    msgs[i], p, resource,
+                    _unpaid_reason(p, f"{_mcp_tool_name(msgs[i])} is a paid tool"))
+                headers = headers or offer_headers
+            else:
+                seen("free", path=f"mcp:{p}")
+        return _mcp_response(body, await _mcp_results(msgs, blocked), headers)
 
-    responses = []
-    for m in msgs:
-        r = await mcp_http.dispatch(m, _MCP_HANDLERS)
-        if r is None:
-            continue
-        if x402.enabled() and isinstance(m, dict) and m.get("method") == "tools/list":
-            r = mcp_http.annotate_tools_list(r)
-        responses.append(r)
+    payment = x402.decode_payment(raw)
+    if payment is None:
+        return await refuse("payment header malformed", "malformed",
+                            "payment header did not decode")
+    if len(paid_paths) > 1:
+        # One authorization buys one price, and this service publishes no offer
+        # for the sum of several. Refused whole rather than dispatched for less
+        # than it costs; the caller is told to send one paid tool per request.
+        return await refuse(
+            f"one paid tool per request: this body calls {len(paid_paths)}, "
+            "and a payment authorizes a single price, so send them separately",
+            "unpaid", "multi-tool batch, one payment covers one price")
 
-    if not responses:                       # notification-only body
-        return Response(status_code=202)
-    payload = responses if isinstance(body, list) else responses[0]
-    return JSONResponse(payload)
+    path = paid_paths[0]
+    dialect = funnel.payment_dialect(payment)
+    price = x402.price_usd(path)
+    reqs = x402.select_requirements(payment, path, resource)
+    ok, why = x402.verify(payment, reqs)
+    if not ok:
+        return await refuse(why, "verify_fail", why, dialect=dialect, amount_usd=price)
+    slots = await _mcp_results(msgs, {})
+    settled, receipt = x402.settle(payment, reqs)
+    if not settled:  # fail-closed: no settle, no result
+        error = str(receipt.get("errorReason") or "settlement failed")
+        return await refuse(error, "settle_fail", error, slots=slots,
+                            dialect=dialect, amount_usd=price)
+    seen("paid", path=f"mcp:{path}", dialect=dialect, amount_usd=price,
+         payer=str(receipt.get("payer") or ""),
+         tx=str(receipt.get("transaction") or ""))
+    return _mcp_response(body, slots, x402.receipt_headers(receipt))
 
 
 async def _check_text(text: str, max_claims: int) -> Tuple[CheckResult, int]:
