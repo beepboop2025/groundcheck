@@ -6,10 +6,37 @@ LANDING_HTML = r"""<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="base:app_id" content="6a52dd0ce3b311a8d678de9d" />
-<title>Groundcheck — the grounding check agents run before they commit to an answer</title>
-<meta name="description" content="Groundcheck verifies a factual claim against live sources and returns a verdict, a confidence score, and citations — over MCP, so any AI agent can call it mid-task." />
-<meta property="og:title" content="Groundcheck" />
-<meta property="og:description" content="The grounding check agents run before they commit to an answer." />
+<title>Groundcheck | Live-source claim and citation verification</title>
+<meta name="description" content="Groundcheck verifies factual claims against live sources and returns supported, refuted, or unverified verdicts with confidence scores and citations over MCP." />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<link rel="canonical" href="https://groundcheck.seiche.info/" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Groundcheck" />
+<meta property="og:title" content="Groundcheck | Live-source claim and citation verification" />
+<meta property="og:description" content="Verify factual claims against live sources and receive a verdict, confidence score, and citations over MCP." />
+<meta property="og:url" content="https://groundcheck.seiche.info/" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Groundcheck | Live-source claim verification" />
+<meta name="twitter:description" content="Supported, refuted, or unverified verdicts with confidence scores and citations over MCP." />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Groundcheck",
+  "url": "https://groundcheck.seiche.info/",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Any",
+  "description": "Live-source claim verification over MCP, with supported, refuted, or unverified verdicts, confidence scores, and citations.",
+  "codeRepository": "https://github.com/beepboop2025/groundcheck",
+  "license": "https://opensource.org/license/mit",
+  "featureList": [
+    "Claim verification against retrieved sources",
+    "Citation checks for multi-claim drafts",
+    "MCP and HTTP access",
+    "Signed delivery receipts for paid agent services"
+  ]
+}
+</script>
 <style>
   :root { --bg:#0a0e14; --panel:#111824; --hi:#e6edf3; --mid:#8b97a7; --dim:#5b6675; --green:#3fb950; --blue:#79c0ff; --red:#f85149; }
   * { box-sizing:border-box; margin:0; padding:0; }
@@ -26,6 +53,7 @@ LANDING_HTML = r"""<!doctype html>
   h1 { font-size:54px; font-weight:800; letter-spacing:-2px; margin:18px 0 6px; }
   h1 .k { color:var(--green); }
   .tag { font-size:20px; color:var(--mid); max-width:560px; }
+  .definition { margin-top:16px; max-width:650px; color:var(--mid); font-size:15px; }
   .demo { margin:36px 0 14px; background:var(--panel); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:22px; }
   .demo label { font:600 12px/1 "SF Mono",Menlo,monospace; letter-spacing:1px; text-transform:uppercase; color:var(--dim); }
   .row { display:flex; gap:10px; margin-top:10px; }
@@ -46,16 +74,22 @@ LANDING_HTML = r"""<!doctype html>
   .links a { color:var(--mid); }
   .ex { margin-top:10px; font-size:13px; color:var(--dim); }
   .ex span { color:var(--blue); cursor:pointer; }
+  .facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:18px; }
+  .fact { border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:16px; background:rgba(17,24,36,.55); }
+  .fact h2 { font-size:14px; margin-bottom:6px; }
+  .fact p { color:var(--mid); font-size:13px; }
+  @media (max-width:600px) { h1 { font-size:42px; } .row { flex-direction:column; } button { min-height:44px; } .facts { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="eyebrow"><span class="dot"></span> Model Context Protocol Server</div>
+  <div class="eyebrow"><span class="dot"></span> Live-source verification · MCP and HTTP</div>
   <h1>Ground<span class="k">check</span></h1>
-  <p class="tag">The grounding check agents run before they commit to an answer. Verify a claim against live sources — verdict, confidence, citations.</p>
+  <p class="tag">Verify a factual claim against live sources. Groundcheck returns a verdict, confidence score, and citations.</p>
+  <p class="definition">Groundcheck retrieves evidence before classifying a claim as supported, refuted, or unverified. Missing, weak, or conflicting evidence stays unverified instead of being turned into a confident answer.</p>
 
   <div class="demo">
-    <label>Try it — verify a factual claim</label>
+    <label>Try it: verify a factual claim</label>
     <div class="row">
       <input id="claim" placeholder="The Eiffel Tower is located in Paris, France." />
       <button id="go">Verify</button>
@@ -64,9 +98,16 @@ LANDING_HTML = r"""<!doctype html>
     <div class="out" id="out"></div>
   </div>
 
+  <section class="facts" aria-label="Groundcheck capabilities">
+    <article class="fact"><h2>Claim verdicts</h2><p>Check one claim or extract and check the factual claims in a draft.</p></article>
+    <article class="fact"><h2>Source trail</h2><p>Every result includes the passages and links used to reach the verdict.</p></article>
+    <article class="fact"><h2>Agent access</h2><p>Use the hosted MCP endpoint or call the HTTP API directly.</p></article>
+    <article class="fact"><h2>Explicit abstention</h2><p>No sources, insufficient support, and source conflict remain distinct failure states.</p></article>
+  </section>
+
   <div class="links">
     Install: <code>claude mcp add groundcheck -- npx -y groundcheck-mcp</code><br/>
-    <a href="https://github.com/beepboop2025/groundcheck">GitHub</a> · <a href="/health">/health</a> · <a href="/docs">API docs</a>
+    <a href="https://github.com/beepboop2025/groundcheck">Source and method</a> · <a href="/health">Health</a> · <a href="/docs">API docs</a>
   </div>
 </div>
 
@@ -99,7 +140,7 @@ async function verify() {
   msg("checking against live sources…");
   try {
     const r = await fetch("/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ claim, max_sources: 4 }) });
-    if (r.status === 429) { msg("Rate limited — try again in a minute."); return; }
+    if (r.status === 429) { msg("Rate limited. Try again in a minute."); return; }
     render(await r.json());
   } catch (e) {
     msg("Error reaching the engine.");

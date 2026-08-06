@@ -7,27 +7,33 @@
 
 [![Groundcheck on x402-list](https://x402-list.com/badge/groundcheck.svg?data=uptime)](https://x402-list.com/services/groundcheck?utm_source=badge&utm_medium=referral&utm_campaign=embed)
 
-![Groundcheck — verify a factual claim against live sources, over MCP](assets/og-card.png)
+![Groundcheck verifies a factual claim against live sources over MCP](assets/og-card.png)
 
-**The grounding check agents run before they commit to an answer.**
+Groundcheck is a live-source claim verification service and MCP server. It returns a
+`supported`, `refuted`, or `unverified` verdict with a confidence score and the sources
+used to reach it.
 
-Groundcheck verifies a factual claim against live sources and returns a **verdict**, a
-**confidence score**, and **citations**. Any agent — Claude Code, Cursor, your own — can call
-it mid-task, before it states a fact it isn't sure of.
+Agents can call it before publishing a factual answer, acting on a market claim, or accepting
+the output of another paid service. Missing, weak, and conflicting evidence remain separate
+failure states, and none of them can produce a `supported` verdict.
 
-It is also a **verification layer for agentic commerce**: when an agent pays another
-service over x402, `attest_delivery` verifies what was delivered against what was
-advertised and issues a signed, offline-verifiable **delivery receipt** binding payment →
-delivery → grounded content — the neutral accountability trail the a2a-payments
-literature calls the missing layer ([docs/delivery-attestation.md](docs/delivery-attestation.md)).
+For agent payments, `attest_delivery` checks a service response against what was advertised
+and issues a signed receipt binding the payment, delivery, and grounded content. See the
+[delivery-attestation design](docs/delivery-attestation.md).
+
+## Use the hosted service
+
+Add `https://groundcheck.seiche.info/mcp` as a remote MCP server in Claude, ChatGPT,
+Cursor, or another MCP client. `verify_claim` is free. Paid tools return an HTTP 402 offer
+using the x402 protocol.
 
 ## Architecture
 
-Two parts, each in the language that fits it:
+Groundcheck has two parts:
 
 ```
-server/   TypeScript MCP server   — thin protocol layer (stdio). Holds no logic.
-engine/   Python FastAPI service  — retrieval + stance classification + the verdict brain.
+server/   TypeScript MCP server: protocol layer over stdio. Holds no verdict logic.
+engine/   Python FastAPI service: retrieval, stance classification, and verdict rules.
 ```
 
 The MCP server is spawned by your client over stdio and talks to the engine over HTTP
@@ -47,7 +53,7 @@ verify_claim ─▶ TS MCP server ─HTTP▶ Python engine
 | Tool | Use it when | Returns |
 |------|-------------|---------|
 | `verify_claim(claim, maxSources?)` | About to assert a fact you're unsure of | `{ verdict, confidence, rationale, sources }` |
-| `check_citations(text, maxClaims?)` | Before publishing an AI-generated draft | per-claim verdict report |
+| `check_citations(text, maxClaims?)` | Before publishing a factual draft | per-claim verdict report |
 | `attribution_badge()` | Want to mark content as checked | a Markdown badge |
 | `resolve_instrument(query, idType?, maxResults?)` | Text names a security and you need to know exactly which one | canonical FIGI records + provenance (Bloomberg open symbology) |
 | `extract_claims(text, maxClaims?)` | Want to see which claims a document makes before paying to ground them | atomic checkable claims + a signed receipt bound to the input hash |
@@ -63,19 +69,15 @@ abstention happens carry different meaning and are no longer collapsed
 **Compound claims are decomposed.** A claim like _"Marie Curie won two Nobel
 Prizes and was born in Paris"_ is split into atoms
 ([Fact in Fragments](https://arxiv.org/abs/2506.07446)), each verified on its
-own evidence and recombined weakest-link: one false part refutes the whole, one
-unproven part blocks a `supported`. The true half can no longer carry the false
-half past the check. The atom breakdown is returned in `atoms`. (Decomposition
-is rule-based and high-precision — it splits only on clean conjunction
-boundaries and otherwise leaves the claim whole; disable with
-`GROUNDCHECK_DECOMPOSE=0`.)
-
-**Remote MCP (no install):** add `https://groundcheck.seiche.info/mcp` as a remote MCP server (Claude/ChatGPT/Cursor connectors, or a gateway like Smithery/Glama). Speaks streamable-HTTP JSON-RPC; `verify_claim` is free, the paid tools answer HTTP 402 with an x402 offer.
+own evidence and recombined weakest-link: one false part refutes the whole, and one
+unproven part blocks a `supported` verdict. The atom breakdown is returned in `atoms`.
+Decomposition is rule-based and splits only on clear conjunction boundaries; otherwise
+it leaves the claim whole. Disable it with `GROUNDCHECK_DECOMPOSE=0`.
 
 ## Quickstart
 
-The MCP server **auto-starts the Python engine** if one isn't already running, so a single
-registration is enough — no separate process to babysit.
+The MCP server starts the Python engine automatically if one is not already running, so a
+single client registration is sufficient.
 
 ```bash
 make install                      # deps for both halves (pip + npm)
@@ -94,14 +96,14 @@ detects and **reuses** it — and won't touch an engine it didn't start. Set
 > Auto-spawn needs a local `engine/` + Python deps; for an npx-only install, run the engine via
 > `docker compose up -d` and the server connects to it over `GROUNDCHECK_ENGINE_URL`.
 
-With **no** provider key the engine still runs — retrieval works, but every verdict is
-`unverified`. It degrades honestly: a disabled backend, a missing key, or conflicting sources
-all flow toward `unverified`. An unconfigured Groundcheck **cannot** return `supported`.
+With no provider key, retrieval still runs but every verdict is `unverified`. A disabled
+backend, missing key, or conflicting evidence also resolves to `unverified`. An unconfigured
+Groundcheck cannot return `supported`.
 
 > Note: OpenRouter's `:free` models are quota-throttled (HTTP 429) and make a poor sole
 > provider. Prefer Groq or Cerebras for the fast classification tier.
 
-## Why grounded verdicts, not LLM-judgment
+## Why the verdict is tied to sources
 
 Asking an LLM to *judge* whether a claim is true is unreliable in a way that's easy to miss.
 In **TraderBench** (Yuan et al., 2026), the *same* candidate responses re-scored by three
@@ -118,20 +120,19 @@ memory. Instead it:
   rather than a confident guess;
 - **returns citations**, so the verdict is checkable, not taken on the model's word.
 
-That's the difference between an LLM judge and a grounding check: the judge's discretion is the
-product; here it's deliberately fenced in by retrieved evidence.
+An unconstrained LLM judge makes its own memory and discretion part of the result. Groundcheck
+limits that discretion to classifying the relationship between a claim and retrieved passages.
 
-## Calibrated verdicts: the "error ≤ α" guarantee
+## Calibrated verdicts
 
-A confidence number without a promise attached is just vibes with decimals. When a
-calibration artifact is deployed, Groundcheck attaches a `guarantee` object to
-directional verdicts, built with **split conformal prediction** (adapted from
+A confidence score alone does not define an error rate. When a calibration artifact is
+deployed, Groundcheck attaches a `guarantee` object to directional verdicts, built with
+**split conformal prediction** (adapted from
 *Multi-LLM Adaptive Conformal Inference*, arXiv:2602.01285):
 
 - Stance classification runs as a **panel**: up to `GROUNDCHECK_ENSEMBLE_MAX` free
-  providers judge the claim independently (different model families disagree on
-  *which* claims they get wrong, so the ensemble beats any one of them). Per-source
-  stances are majority-voted; each panelist also emits a probability the claim is
+  providers judge the claim independently. Per-source stances are majority-voted;
+  each panelist also emits a probability the claim is
   true given only the snippets, combined into a weighted `ensemble_score`.
 - `scripts/calibrate.py` runs the real pipeline over a labeled claim set and stores
   finite-sample thresholds per claim group (`instrument` / `general`, `global`
@@ -142,10 +143,10 @@ directional verdicts, built with **split conformal prediction** (adapted from
   (default 0.1), and symmetrically for `refuted`. No distributional assumptions,
   exact in finite samples.
 
-Honest degradation, as everywhere else: no artifact → no guarantee is ever claimed;
-too little calibration data for a given α → the threshold is refused rather than
-extrapolated. The guarantee is only as good as the exchangeability assumption —
-recalibrate with domain claims before leaning on it in a new domain.
+Without an artifact, no guarantee is claimed. If there is too little calibration data for
+a given α, the threshold is withheld rather than extrapolated. The guarantee depends on
+the exchangeability assumption, so recalibrate with domain claims before using it in a new
+domain.
 
 ## Configuration (engine)
 
@@ -166,7 +167,7 @@ recalibrate with domain claims before leaning on it in a new domain.
 A hosted engine can charge AI agents per call in USDC over the
 [x402 protocol](https://x402.org) — HTTP 402 + signed transfer authorization,
 no accounts or API keys. Dormant unless `GROUNDCHECK_X402_PAY_TO` is set;
-`/verify` stays free forever and is the way to evaluate output before paying;
+`/verify` remains on the free surface and is the way to evaluate output before paying;
 the paid surface prices as a granular verification loop: **extract $0.005 → ground
 $0.02 → delivery-attestation bundle $0.05** (plus `/resolve` at $0.005).
 Both protocol generations (v1 and v2) are accepted, and agents can read the
@@ -191,7 +192,7 @@ make server      # run the MCP server in dev (tsx)
 make build       # compile the server to server/dist
 ```
 
-The interesting logic is in `engine/groundcheck_engine/verdict.py`: how much source
+The verdict logic is in `engine/groundcheck_engine/verdict.py`: how much source
 agreement counts as "supported," how conflict is handled, and how confidence saturates.
 
 MIT.
