@@ -296,6 +296,38 @@ async def llms_txt() -> str:
     return resources.files("groundcheck_engine").joinpath("llms.txt").read_text()
 
 
+@app.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
+async def robots_txt() -> str:
+    return ("User-agent: *\n"
+            "Allow: /\n\n"
+            "Sitemap: https://groundcheck.seiche.info/sitemap.xml\n")
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap_xml() -> Response:
+    body = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://groundcheck.seiche.info/</loc>
+    <lastmod>2026-08-06</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+"""
+    return Response(body, media_type="application/xml")
+
+
+@app.get("/.well-known/security.txt", response_class=PlainTextResponse,
+         include_in_schema=False)
+async def security_txt() -> str:
+    return ("Contact: mailto:mrinallovesbhature@gmail.com\n"
+            "Contact: https://github.com/beepboop2025/groundcheck/security/advisories/new\n"
+            "Canonical: https://groundcheck.seiche.info/.well-known/security.txt\n"
+            "Expires: 2027-08-06T23:59:59Z\n"
+            "Preferred-Languages: en\n")
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon() -> Response:
     data = resources.files("groundcheck_engine").joinpath("favicon.ico").read_bytes()
