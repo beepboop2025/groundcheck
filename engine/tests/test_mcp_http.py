@@ -164,6 +164,57 @@ def test_tool_error_is_reported_not_raised(client):
     assert r.json()["error"]["code"] == mcp_http.INVALID_PARAMS  # missing 'claim'
 
 
+# ---- privacy-safe activation telemetry ---------------------------------------
+
+def _activation_messages(caplog):
+    return [record.getMessage() for record in caplog.records
+            if "mcp_activation" in record.getMessage()]
+
+
+def test_delivered_tool_call_emits_bounded_activation(client, caplog):
+    marker = "private claim must never reach the activation journal"
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        r = client.post(
+            "/mcp", json=_call(1, "verify_claim", claim=marker),
+            headers={"X-Forwarded-For": "198.51.100.52"})
+
+    assert r.status_code == 200
+    events = _activation_messages(caplog)
+    assert events == [
+        "mcp_activation product=groundcheck surface=public "
+        "tool=verify_claim outcome=success origin=edge"
+    ]
+    assert marker not in "\n".join(events)
+
+
+def test_discovery_and_payment_offer_are_not_activations(client, monkeypatch, caplog):
+    _enable_x402(monkeypatch)
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        client.post("/mcp", json={**RPC, "method": "tools/list"})
+        offered = client.post(
+            "/mcp", json=_call(2, "extract_claims", text=TEXT))
+
+    assert _is_offer(offered.json()["result"])
+    assert _activation_messages(caplog) == []
+
+
+def test_settled_tool_call_is_attributed_to_paid_surface(client, monkeypatch, caplog):
+    _enable_x402(monkeypatch)
+    monkeypatch.setattr(x402, "_facilitator_post", lambda path, body: (
+        {"isValid": True} if path == "/verify"
+        else {"success": True, "transaction": "0xtx", "payer": "0xBuyer"}))
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        r = client.post(
+            "/mcp", json=_call(3, "extract_claims", text=TEXT),
+            headers={"X-PAYMENT": _payment()})
+
+    assert r.json()["result"]["isError"] is False
+    assert _activation_messages(caplog) == [
+        "mcp_activation product=groundcheck surface=paid "
+        "tool=extract_claims outcome=success origin=direct"
+    ]
+
+
 # ---- payment -------------------------------------------------------------------
 
 def test_paid_tool_offers_payment_as_a_jsonrpc_result_not_a_transport_error(

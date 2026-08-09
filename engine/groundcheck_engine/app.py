@@ -14,6 +14,7 @@ Endpoints:
 import asyncio
 import functools
 import json
+import logging
 import re
 import time
 from collections import Counter, OrderedDict, defaultdict, deque
@@ -708,6 +709,7 @@ _MCP_METHODS = frozenset({
     "notifications/initialized", "notifications/cancelled",
 })
 _MCP_SHAPE_TOKENS = 3
+_MCP_ACTIVATION_LOG = logging.getLogger("uvicorn.error")
 
 
 def _mcp_tool_name(msg: Any) -> str | None:
@@ -736,6 +738,47 @@ def _mcp_priced(msg: Any) -> str | None:
     if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0" or "id" not in msg:
         return None
     return mcp_http.TOOL_PRICED_AS.get(_mcp_tool_name(msg))
+
+
+def _mcp_is_payment_offer(response: Any) -> bool:
+    """Payment negotiation is funnel activity, not a delivered activation."""
+    if not isinstance(response, dict):
+        return False
+    result = response.get("result")
+    if not isinstance(result, dict):
+        return False
+    structured = result.get("structuredContent")
+    return (isinstance(structured, dict)
+            and structured.get("error") == "payment_required")
+
+
+def _log_mcp_activations(body: Any, slots: List[Any],
+                         paid_indices: frozenset[int], origin: str) -> None:
+    """Emit one bounded journal event for each result delivered to the caller.
+
+    This intentionally runs at the HTTP boundary, after payment settlement and
+    result replacement, so an offer or failed settlement cannot masquerade as
+    product use. Caller-controlled arguments and identity data never enter it.
+    """
+    msgs = body if isinstance(body, list) else [body]
+    for index, (message, response) in enumerate(zip(msgs, slots)):
+        if (response is None or _mcp_is_payment_offer(response)
+                or not isinstance(message, dict)
+                or message.get("method") != "tools/call"):
+            continue
+        name = _mcp_tool_name(message)
+        tool = name if name in _MCP_TOOL_NAMES else "unknown"
+        result = response.get("result") if isinstance(response, dict) else None
+        failed = (isinstance(response, dict) and "error" in response) or (
+            isinstance(result, dict) and result.get("isError") is True)
+        _MCP_ACTIVATION_LOG.info(
+            "mcp_activation product=groundcheck surface=%s tool=%s "
+            "outcome=%s origin=%s",
+            "paid" if index in paid_indices else "public",
+            tool,
+            "error" if failed else "success",
+            origin,
+        )
 
 
 def _mcp_shape(msgs: List[Any]) -> str:
@@ -797,7 +840,10 @@ async def _mcp_results(msgs: List[Any], blocked: Dict[int, dict]) -> List[Any]:
     return out
 
 
-def _mcp_response(body: Any, slots: List[Any], headers: dict) -> Response:
+def _mcp_response(body: Any, slots: List[Any], headers: dict,
+                  paid_indices: frozenset[int] = frozenset(),
+                  origin: str = "unknown") -> Response:
+    _log_mcp_activations(body, slots, paid_indices, origin)
     results = [r for r in slots if r is not None]
     if not results:                         # notification-only body
         return Response(status_code=202)
@@ -823,6 +869,7 @@ async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response
 
     ip = _client_ip(request)
     ua = request.headers.get("User-Agent", "")
+    origin = "edge" if request.headers.get("X-Forwarded-For") else "direct"
     resource = str(request.url)
     # Every message in the body is priced, not only a lone one.
     priced = [_mcp_priced(m) for m in msgs]
@@ -834,7 +881,8 @@ async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response
     if not (x402.enabled() and paid_paths):
         # Every POST leaves a line, including bodies that owe nothing.
         seen("probe", path="mcp:unpriced", reason=_mcp_shape(msgs))
-        return _mcp_response(body, await _mcp_results(msgs, {}), {})
+        return _mcp_response(
+            body, await _mcp_results(msgs, {}), {}, origin=origin)
 
     async def refuse(error: str, stage: str, reason: str,
                      slots: List[Any] | None = None, **fields) -> Response:
@@ -855,7 +903,7 @@ async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response
             slots = await _mcp_results(msgs, blocked)
         else:
             slots = [blocked.get(i, r) for i, r in enumerate(slots)]
-        return _mcp_response(body, slots, headers)
+        return _mcp_response(body, slots, headers, origin=origin)
 
     # A paid tool call is settled BEFORE it runs, exactly like the REST paths:
     # free daily quota first, then a 402 offer, then verify + settle or nothing.
@@ -876,7 +924,8 @@ async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response
                 headers = headers or offer_headers
             else:
                 seen("free", path=f"mcp:{p}")
-        return _mcp_response(body, await _mcp_results(msgs, blocked), headers)
+        return _mcp_response(
+            body, await _mcp_results(msgs, blocked), headers, origin=origin)
 
     payment = x402.decode_payment(raw)
     if payment is None:
@@ -907,7 +956,10 @@ async def mcp_post(request: Request, body: Any = Body(default=None)) -> Response
     seen("paid", path=f"mcp:{path}", dialect=dialect, amount_usd=price,
          payer=str(receipt.get("payer") or ""),
          tx=str(receipt.get("transaction") or ""))
-    return _mcp_response(body, slots, x402.receipt_headers(receipt))
+    paid_indices = frozenset(i for i, priced_as in enumerate(priced) if priced_as)
+    return _mcp_response(
+        body, slots, x402.receipt_headers(receipt), paid_indices=paid_indices,
+        origin=origin)
 
 
 async def _check_text(text: str, max_claims: int) -> Tuple[CheckResult, int]:
