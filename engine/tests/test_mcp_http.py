@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from groundcheck_engine import __version__
 from groundcheck_engine import app as app_module
 from groundcheck_engine import funnel, instruments, mcp_http, x402
 from groundcheck_engine.app import app
@@ -103,7 +104,9 @@ def test_registry_manifest_uses_current_schema():
             encoding="utf-8"))
     assert manifest["$schema"].endswith("/2025-12-11/server.schema.json")
     assert manifest["name"] == "io.github.beepboop2025/groundcheck"
-    assert manifest["version"] == "0.7.0"
+    assert manifest["version"] == mcp_http.SERVER_VERSION
+    assert manifest["version"] == __version__
+    assert manifest["version"] == app.version
 
 
 def test_ping_and_empty_capabilities(client):
