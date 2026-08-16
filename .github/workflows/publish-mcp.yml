@@ -17,16 +17,24 @@ jobs:
   registry:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      MCP_PUBLISHER_VERSION: "1.8.1"
+      MCP_PUBLISHER_SHA256: "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install mcp-publisher
         run: |
-          curl -sSLo mcp-publisher.tar.gz "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.0/mcp-publisher_linux_amd64.tar.gz"
-          echo "1370446bbe74d562608e8005a6ccce02d146a661fbd78674e11cc70b9618d6cf  mcp-publisher.tar.gz" | sha256sum -c -
-          tar xzf mcp-publisher.tar.gz mcp-publisher && sudo mv mcp-publisher /usr/local/bin/
+          curl --fail --silent --show-error --location \
+            --output mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file mcp-publisher.tar.gz mcp-publisher
+          chmod 0755 mcp-publisher
       - name: Validate and publish server.json
         run: |
-          mcp-publisher login github-oidc
+          ./mcp-publisher login github-oidc
           # NOTE: current mcp-publisher treats --dry-run as a real publish;
           # a single publish is the whole job.
-          mcp-publisher publish
+          ./mcp-publisher publish

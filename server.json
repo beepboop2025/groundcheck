@@ -1,5 +1,5 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.beepboop2025/groundcheck",
   "description": "Verify claims, resolve FIGI identity, extract claims, and sign x402 delivery receipts over MCP.",
   "repository": {
