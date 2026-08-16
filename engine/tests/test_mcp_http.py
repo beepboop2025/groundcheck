@@ -5,6 +5,7 @@ resolve_instrument — spoken as JSON-RPC 2.0.
 """
 import base64
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -94,6 +95,15 @@ def test_tools_list_advertises_all_five(client):
     names = {t["name"] for t in r.json()["result"]["tools"]}
     assert names == {"verify_claim", "check_citations", "resolve_instrument",
                      "extract_claims", "attest_delivery"}
+
+
+def test_registry_manifest_uses_current_schema():
+    manifest = json.loads(
+        (Path(__file__).resolve().parents[2] / "server.json").read_text(
+            encoding="utf-8"))
+    assert manifest["$schema"].endswith("/2025-12-11/server.schema.json")
+    assert manifest["name"] == "io.github.beepboop2025/groundcheck"
+    assert manifest["version"] == "0.7.0"
 
 
 def test_ping_and_empty_capabilities(client):
