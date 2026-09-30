@@ -1,5 +1,6 @@
 # Root requirements — used by Vercel's Python runtime to build api/index.py.
 # (Local dev uses engine/requirements.txt, which also includes uvicorn + pytest.)
+-c security-constraints.txt
 fastapi>=0.110
 httpx>=0.27
 pydantic>=2.6

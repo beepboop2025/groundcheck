@@ -1,0 +1,8 @@
+# Security floors shared by the deployed engine and optional CDP dependencies.
+aiohttp>=3.14.3
+anyio>=4.14.2
+cryptography>=50.0.0
+h2>=4.4.1
+httpcore2>=2.10.0
+httpx2>=2.12.0
+PyJWT>=2.14.0
