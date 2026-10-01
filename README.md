@@ -5,6 +5,13 @@
 
 # Groundcheck
 
+Exact dated SOFR, EFFR and OBFR percentage claims use the NY Fed's official
+benchmark API before general retrieval. For example, `SOFR was 3.88% on
+2026-09-29.` is compared with that effective date's published `percentRate`.
+The evidence retains the date, retrieval time and response digest. Missing or
+ambiguous prints remain unverified; the route does not infer a date, certify an
+original historical vintage, or transfer the language-model calibration.
+
 [![Groundcheck on x402-list](https://x402-list.com/badge/groundcheck.svg?data=uptime)](https://x402-list.com/services/groundcheck?utm_source=badge&utm_medium=referral&utm_campaign=embed)
 
 ![Groundcheck — verify a factual claim against live sources, over MCP](assets/og-card.png)

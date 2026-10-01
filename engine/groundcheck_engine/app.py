@@ -21,6 +21,7 @@ from collections import Counter, OrderedDict, defaultdict, deque
 from importlib import resources
 from typing import Any, Deque, Dict, List, Tuple
 
+import httpx
 from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
@@ -38,7 +39,7 @@ from .verdict import compute_verdict
 
 app = FastAPI(
     title="Groundcheck Engine",
-    version="0.7.1",
+    version="0.7.2",
     contact={
         "name": "Groundcheck",
         "url": "https://github.com/beepboop2025/groundcheck",
@@ -461,7 +462,7 @@ async def _verify_atomic(claim: str, max_sources: int) -> Tuple[VerifyResult, bo
     # Conformal certification: only meaningful for a directional verdict, and
     # only when a calibration artifact is deployed (else certify() -> None).
     guarantee = None
-    if v["verdict"] in ("supported", "refuted"):
+    if v["verdict"] in ("supported", "refuted") and classifier != "official-nyfed-numeric":
         group = "instrument" if resolved else "general"
         g = conformal.certify(v["verdict"], score, group)
         if g is not None:
@@ -474,7 +475,7 @@ async def _verify_atomic(claim: str, max_sources: int) -> Tuple[VerifyResult, bo
         sources=sources, rationale=rationale, instruments=resolved,
         ensemble_score=score, guarantee=guarantee, **v
     )
-    return result, classifier != "error"
+    return result, classifier not in ("error", "official-source-unavailable")
 
 
 async def _verify_compound(claim: str, sub_claims: List[str],
@@ -521,11 +522,20 @@ async def _verify_compound(claim: str, sub_claims: List[str],
         sources=all_sources, rationale=rationale, instruments=[],
         atoms=atom_reports, ensemble_score=None, guarantee=None, **combined,
     )
-    cacheable = not all(c == "error" for _, _, _, c in verified)
+    cacheable = (not all(c == "error" for _, _, _, c in verified)
+                 and "official-source-unavailable" not in classifiers)
     return result, cacheable
 
 
 async def _search_and_classify(claim: str, max_sources: int):
+    from . import official_rates
+    reference = official_rates.parse_claim(claim)
+    if reference is not None and retriever.backend in ("wikipedia", "wikipedia+gdelt"):
+        try:
+            return await official_rates.compare(reference), "official-nyfed-numeric", None
+        except (httpx.HTTPError, ValueError, TypeError):
+            # A missing official print cannot be replaced with unrelated news.
+            return [], "official-source-unavailable", None
     sources = await retriever.search(claim, max_sources)
     if config.ENSEMBLE:
         cal = conformal.load_calibration()
