@@ -47,21 +47,20 @@ function engineDown(claim: string): VerifyResult {
 
 server.tool(
   "verify_claim",
-  "PURPOSE: Fact-check one claim against live sources and return a result you can GATE A " +
-    "DECISION ON. Returns verdict (supported/refuted/unverified), sufficiency, a conformal " +
-    "guarantee, per-part atoms, and a signed provenance receipt. " +
-    "GUIDELINES: Call BEFORE asserting or acting on a fact you are unsure of. Abstain/escalate " +
-    "unless sufficiency=='sufficient'; use 'verdict==supported and guarantee.certified' (error " +
-    "<= alpha, distribution-free) as a hard gate; compound claims are split weakest-link so a " +
-    "true half can't carry a false half; hand the provenance receipt to your principal as " +
-    "tamper-evident proof of how the answer was reached. Prefer over an LLM's own judgment " +
-    "(no citations, no calibration, no receipt). " +
-    "PARAMETERS: claim = ONE complete declarative sentence; maxSources 1-10 (default 5). " +
-    "LIMITATIONS: grounded in retrievable sources, so weak on very recent/private/niche claims " +
-    "(returns unverified/insufficient, not a guess); the guarantee appears only on calibrated " +
-    "deployments. EXAMPLE: verify_claim({claim:'The Eiffel Tower is in Paris.'}).",
+  "Fact-check one claim against live retrieved sources. Returns verdict (supported, " +
+    "refuted or unverified), sufficiency, a conformal guarantee, per-part atoms and a " +
+    "signed provenance receipt binding the evidence and model route. Sufficiency other than " +
+    "sufficient (insufficient means one weak source; no_sources, no_stance, conflict) is a " +
+    "reason to abstain or escalate. When guarantee.certified is true, the error probability " +
+    "is calibrated to at most guarantee.alpha, distribution-free, so supported plus " +
+    "certified can gate a decision. Compound claims are verified part by part and " +
+    "recombined weakest-link, so a true part cannot carry a false one. Limits: evidence is " +
+    "retrievable web, encyclopedic and news sources, so very recent, private, " +
+    "niche-technical or opinion claims return unverified or insufficient rather than a " +
+    "guess. The guarantee exists only on calibrated deployments, for claims exchangeable " +
+    "with the calibration set. It checks source support, not ultimate truth. Free.",
   {
-    claim: z.string().describe("The factual claim to verify, written as one complete sentence."),
+    claim: z.string().max(10_000).describe("The factual claim to verify, written as one complete sentence."),
     maxSources: z.number().int().min(1).max(10).default(5).optional(),
   },
   async ({ claim, maxSources = 5 }) => {
@@ -79,16 +78,17 @@ server.tool(
 
 server.tool(
   "check_citations",
-  "PURPOSE: Fact-check EVERY claim in a block of text and return a per-claim report — the " +
-    "batch form of verify_claim, for AI-generated drafts before you publish or act on them. " +
-    "GUIDELINES: each reported claim carries verdict, sufficiency (abstain/escalate on anything " +
-    "but 'sufficient'), and a conformal guarantee when certified; the response is covered by a " +
-    "signed receipt bound to a hash of your text, so you can prove which document was checked. " +
-    "Use verify_claim for a single claim. PARAMETERS: text = the prose (claims extracted " +
-    "automatically); maxClaims 1-20 (default 8). LIMITATIONS: skips questions/opinions, bounded " +
-    "by maxClaims, same source limits as verify_claim.",
+  "Fact-check every factual claim in a block of text, such as an AI-generated draft or " +
+    "document before it is published or acted on, and return a per-claim report. Claims are " +
+    "extracted automatically. Each reported claim carries a verdict, sufficiency (anything " +
+    "but sufficient is a reason to abstain or escalate) and a conformal guarantee when " +
+    "certified. The response is covered by a signed receipt bound to a hash of the " +
+    "submitted text, so it can later prove which document was checked. Limits: only " +
+    "declarative factual sentences are checked (questions and opinions are skipped), at " +
+    "most maxClaims of them, with the same source-coverage limits as single-claim " +
+    "verification. Paid per call on the hosted engine (x402); free on a local engine.",
   {
-    text: z.string().describe("Text whose factual claims should be checked."),
+    text: z.string().max(100_000).describe("Text whose factual claims should be checked."),
     maxClaims: z.number().int().min(1).max(20).default(8).optional(),
   },
   async ({ text, maxClaims = 8 }) => {
@@ -105,15 +105,15 @@ server.tool(
 
 server.tool(
   "resolve_instrument",
-  "PURPOSE: Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or name to " +
-    "canonical FIGI records via Bloomberg open symbology (OpenFIGI), WITH provenance and a " +
-    "signed receipt. GUIDELINES: call BEFORE acting on any claim, order, or document that names " +
-    "a security, so you know exactly WHICH instrument it is (disambiguating colliding tickers) " +
-    "and can prove the mapping to your principal; prefer an explicit identifier over a plain " +
-    "name. PARAMETERS: query = ticker/ISIN/CUSIP/SEDOL/FIGI/name; idType optional (auto-detected); " +
-    "maxResults 1-10 (default 5). LIMITATIONS: conservative — returns matched=false rather than " +
-    "guessing on an ambiguous name; does not price instruments or resolve crypto tokens. " +
-    "EXAMPLE: resolve_instrument({query:'US0378331005', idType:'ID_ISIN'}).",
+  "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL or FIGI) or an instrument " +
+    "name to canonical FIGI records via OpenFIGI, Bloomberg's open symbology, with " +
+    "provenance and a signed receipt. Useful whenever a claim, order or document names a " +
+    "security: it shows exactly which instrument is meant, disambiguating colliding " +
+    "tickers, and the receipt proves the mapping. An explicit identifier resolves more " +
+    "reliably than a plain name; idType is auto-detected when omitted. Limits: conservative " +
+    "by design, it returns matched=false rather than guessing on an ambiguous name, and it " +
+    "does not price instruments or resolve crypto tokens. Paid per call on the hosted " +
+    "engine (x402); free on a local engine.",
   {
     query: z.string().min(1).max(200).describe("Ticker, ISIN, CUSIP, SEDOL, FIGI, or instrument name."),
     idType: z
@@ -141,24 +141,19 @@ server.tool(
 
 server.tool(
   "extract_claims",
-  "PURPOSE: Split text into independently checkable ATOMIC factual claims — the cheap first " +
-    "step of a verification loop (extract -> ground -> attest). Returns {claims, count, " +
-    "input_sha256} plus a signed receipt bound to the input hash. " +
-    "GUIDELINES: call when you want to see WHICH claims a document makes before paying to " +
-    "ground them, to budget a verification pass (extract everything, then verify_claim only " +
-    "the claims that matter to your decision), or to prove later exactly which claims were " +
-    "pulled from exactly which text (the receipt binds both). Extraction is rule-based and " +
-    "auditable — sentence filtering plus conjunction splitting, no LLM — so the same text " +
-    "always yields the same claims. Use check_citations when you want extraction AND grounding " +
-    "in one call. PARAMETERS: text = the prose to decompose; maxClaims 1-50 (default 20). " +
-    "LIMITATIONS: extracts declarative factual sentences; skips questions, opinions, " +
-    "instructions, first-person statements; splits only on high-precision conjunction " +
-    "boundaries so under-splitting is possible. Does NOT verify anything. Paid per call on the " +
-    "hosted engine (x402, cheapest tool); free on a local engine. " +
-    "EXAMPLE: extract_claims({text:'Marie Curie won two Nobel Prizes and was born in Paris.'}) " +
-    "-> {count: 2, claims: ['Marie Curie won two Nobel Prizes', 'was born in Paris.']}.",
+  "Split text into independently checkable atomic factual claims: the low-cost first step " +
+    "of a verification loop (extract, ground, attest). Returns claims, count and " +
+    "input_sha256, plus a signed receipt bound to the input hash. Useful to see which " +
+    "claims a document makes before paying to ground them, to budget a verification pass by " +
+    "grounding only the claims that matter, or to prove later exactly which claims came " +
+    "from which text. Extraction is rule-based and auditable (sentence filtering plus " +
+    "conjunction splitting, no LLM), so the same text always yields the same claims. " +
+    "Limits: it skips questions, opinions, instructions and first-person statements, and " +
+    "splits only on high-precision conjunction boundaries, so under-splitting is possible. " +
+    "It verifies nothing. Paid per call on the hosted engine (x402, at its lowest price); " +
+    "free on a local engine.",
   {
-    text: z.string().min(1).describe("The text to split into independently checkable atomic factual claims."),
+    text: z.string().min(1).max(100_000).describe("The text to split into independently checkable atomic factual claims."),
     maxClaims: z.number().int().min(1).max(50).default(20).optional()
       .describe("Max claims to return (1-50)."),
   },
@@ -176,36 +171,22 @@ server.tool(
 
 server.tool(
   "attest_delivery",
-  "PURPOSE: Neutral delivery verification for agentic commerce. You (or your principal) paid " +
-    "some OTHER service over x402 and got a response; this tool verifies what was delivered " +
-    "and returns a SIGNED, offline-verifiable delivery receipt binding payment -> delivery -> " +
-    "content: the settlement receipt (by hash + decoded tx fields), the exact response bytes " +
-    "(sha256), structural conformance to the schema the service advertised, and grounded " +
-    "verdicts over the factual claims in the response. Returns delivery_verdict " +
-    "(consistent | degraded | inconsistent | unverifiable) with a rationale. " +
-    "GUIDELINES: call AFTER a paid third-party call whose output you will act on or account " +
-    "for. Branch on delivery_verdict: consistent -> proceed; degraded -> use with caution, " +
-    "flag the refuted claims; inconsistent -> do not rely on the delivery, keep the receipt as " +
-    "dispute evidence; unverifiable -> nothing contradicted but nothing confirmed. Save the " +
-    "full response JSON — it is a self-contained dispute artifact verifiable offline months " +
-    "later (GET /attest/pubkey on the engine documents how). " +
-    "PARAMETERS: service = URL/name of the paid service; responseText = the delivered payload " +
-    "verbatim; requestText (optional) = what was asked; paymentReceipt (optional) = the " +
-    "X-PAYMENT-RESPONSE value from the paid call; advertisedSchema (optional) = the JSON " +
-    "schema the service advertised; maxClaims 1-20 (default 8). " +
-    "LIMITATIONS: judges CONSISTENCY (as-advertised, not contradicted), never service " +
-    "quality. Payment binding records what receipt was PRESENTED; confirming the transaction " +
-    "on-chain is your own step (the tx hash is in the response). Schema conformance is " +
-    "structural. Content checking has the same source-coverage limits as verify_claim. Paid " +
-    "per call on the hosted engine (x402). " +
-    "EXAMPLE: attest_delivery({service:'https://api.vendor.xyz/enrich', responseText:'{\"name\": " +
-    "\"APPLE INC\"}', paymentReceipt:'<X-PAYMENT-RESPONSE>', advertisedSchema:{type:'object', " +
-    "required:['name']}}) -> {delivery_verdict: 'consistent', payment: {bound: true, " +
-    "transaction: '0x…'}, attestation: {…}}.",
+  "Neutral delivery verification for agentic commerce: after an x402 payment to another " +
+    "service, it checks what was delivered and returns a signed, offline-verifiable receipt " +
+    "binding payment, delivery and content (settlement receipt hash and decoded transaction " +
+    "fields, response sha256, structural conformance to the advertised schema, grounded " +
+    "verdicts on the response's factual claims). delivery_verdict, with a rationale: " +
+    "consistent (proceed), degraded (use with caution; refuted claims flagged), " +
+    "inconsistent (not reliable; the receipt is dispute evidence) or unverifiable (nothing " +
+    "contradicted or confirmed). Limits: it judges consistency with what was advertised, " +
+    "never service quality. Payment binding records which receipt was presented; on-chain " +
+    "confirmation is a separate step (the transaction hash is returned). Schema conformance " +
+    "is structural only; claim checks share the usual source-coverage limits. Paid per call " +
+    "on the hosted engine (x402).",
   {
     service: z.string().min(1).max(500)
       .describe("URL (or name) of the paid service whose delivery is being verified."),
-    responseText: z.string().min(1)
+    responseText: z.string().min(1).max(100_000)
       .describe("The delivered payload, verbatim (JSON or prose)."),
     requestText: z.string().max(10_000).optional()
       .describe("What was asked of the service (optional; bound by hash when given)."),
