@@ -46,43 +46,37 @@ TOOL_PRICED_AS = {
     "attest_delivery": "/attest-delivery",
 }
 
+# What a directory scanner reads is only this advertised surface, never the
+# code, so it follows the fleet metadata rules (tests/test_metadata_hygiene.py):
+# each tool describes only itself, no URLs, descriptions under 1,000
+# characters, and every free-text input carries a length bound. The bounds
+# match the limits the REST models already enforce (200 for a query, 500 for a
+# service, 10,000 and 16,384 for the optional delivery fields, 100,000 for a
+# document); a claim is one sentence, so 10,000 characters leaves ample room.
 TOOLS: list[dict] = [
     {
         "name": "verify_claim",
         "description": (
-            "PURPOSE: Fact-check one claim against live retrieved sources and return a "
-            "result you can GATE A DECISION ON, not just read. Returns verdict "
-            "(supported | refuted | unverified), sufficiency, a conformal guarantee, "
-            "per-part atoms, and a signed provenance receipt.\n"
-            "GUIDELINES: Call BEFORE asserting a fact you are not certain of, or before "
-            "acting on one. Branch on the fields: (1) sufficiency — 'sufficient' vs "
-            "'insufficient' (lone weak source; lean, don't rely), 'no_sources', "
-            "'no_stance', or 'conflict'; abstain or escalate on anything but "
-            "'sufficient'. (2) guarantee — when guarantee.certified is true the error "
-            "probability is calibrated to <= guarantee.alpha (distribution-free); use "
-            "'verdict==supported and guarantee.certified' as a hard gate. (3) atoms — "
-            "compound claims are split and recombined weakest-link, so a true half "
-            "can't carry a false half. (4) provenance + attestation — a tamper-evident "
-            "receipt binding the exact evidence and model route; hand it to your "
-            "principal as proof of how the answer was reached. Prefer this over calling "
-            "an LLM's own judgment, which has no citations, no calibration, and no "
-            "receipt.\n"
-            "PARAMETERS: claim — ONE complete declarative sentence (not a question, not "
-            "a paragraph). max_sources — 1..10, default 5.\n"
-            "LIMITATIONS: Grounded in retrievable web/encyclopedic/news sources, so it "
-            "is weak on very recent, private, niche-technical, or opinion claims (those "
-            "return unverified/insufficient rather than a guess). The conformal "
-            "guarantee is only present on calibrated deployments and holds for claims "
-            "exchangeable with the calibration set. It checks whether sources support "
-            "the claim, not ultimate truth.\n"
-            "EXAMPLE: verify_claim({\"claim\": \"The Eiffel Tower is in Paris.\"}) -> "
-            "{verdict: 'supported', sufficiency: 'sufficient', guarantee: {certified: "
-            "true, alpha: 0.1}, provenance: {...}}. Free."
+            "Fact-check one claim against live retrieved sources. Returns verdict "
+            "(supported, refuted or unverified), sufficiency, a conformal guarantee, "
+            "per-part atoms and a signed provenance receipt binding the evidence and "
+            "model route. "
+            "Sufficiency other than sufficient (insufficient means one weak source; "
+            "no_sources, no_stance, conflict) is a reason to abstain or escalate. When "
+            "guarantee.certified is true, the error probability is calibrated to at most "
+            "guarantee.alpha, distribution-free, so supported plus certified can gate a "
+            "decision. Compound claims are verified part by part and recombined "
+            "weakest-link, so a true part cannot carry a false one. Limits: evidence is "
+            "retrievable web, encyclopedic and news sources, so very recent, private, "
+            "niche-technical or opinion claims return unverified or insufficient rather "
+            "than a guess. The guarantee exists only on calibrated deployments, for "
+            "claims exchangeable with the calibration set. It checks source support, not "
+            "ultimate truth. Free."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "claim": {"type": "string",
+                "claim": {"type": "string", "maxLength": 10_000,
                           "description": "The factual claim as ONE complete declarative "
                                          "sentence (not a question or a paragraph)."},
                 "max_sources": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5,
@@ -94,29 +88,23 @@ TOOLS: list[dict] = [
     {
         "name": "check_citations",
         "description": (
-            "PURPOSE: Fact-check EVERY factual claim in a block of text and return a "
-            "per-claim report — the batch form of verify_claim, for AI-generated drafts "
-            "or documents before you publish or act on them.\n"
-            "GUIDELINES: Call on any multi-claim text you are about to rely on. Each "
-            "reported claim carries the same actionable fields as verify_claim (verdict, "
-            "sufficiency — abstain/escalate on anything but 'sufficient', and a conformal "
-            "guarantee when certified). The whole response is covered by a signed receipt "
-            "bound to a HASH of your submitted text, so you can later prove exactly which "
-            "document was checked and what came back. Use verify_claim instead for a "
-            "single claim.\n"
-            "PARAMETERS: text — the prose to check (claims are extracted automatically). "
-            "max_claims — 1..20, default 8 (caps how many extracted claims are verified).\n"
-            "LIMITATIONS: Extracts and checks declarative factual sentences; it skips "
-            "questions, opinions, and instructions, and is bounded by max_claims. Same "
-            "source-coverage limits as verify_claim. Paid per call (x402): unpaid calls "
-            "return HTTP 402 with a payment offer.\n"
-            "EXAMPLE: check_citations({\"text\": \"Paris is the capital of France. The "
-            "Nile flows through Egypt.\", \"max_claims\": 8})"
+            "Fact-check every factual claim in a block of text, such as an AI-generated "
+            "draft or document before it is published or acted on, and return a "
+            "per-claim report. Claims are extracted automatically. Each reported claim "
+            "carries a verdict, sufficiency (anything but sufficient is a reason to "
+            "abstain or escalate) and a conformal guarantee when certified. The whole "
+            "response is covered by a signed receipt bound to a hash of the submitted "
+            "text, so it can later prove exactly which document was checked and what came "
+            "back. Limits: only declarative factual sentences are checked (questions, "
+            "opinions and instructions are skipped), at most max_claims of them, and "
+            "evidence comes from retrievable web, encyclopedic and news sources, so very "
+            "recent, private, niche-technical or opinion claims come back unverified or "
+            "insufficient. Paid per call (x402): an unpaid call returns the payment offer."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "text": {"type": "string",
+                "text": {"type": "string", "maxLength": 100_000,
                          "description": "The prose whose factual claims should be extracted "
                                         "and checked."},
                 "max_claims": {"type": "integer", "minimum": 1, "maximum": 20, "default": 8,
@@ -128,29 +116,23 @@ TOOLS: list[dict] = [
     {
         "name": "resolve_instrument",
         "description": (
-            "PURPOSE: Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL, FIGI) or "
-            "an instrument name to canonical FIGI records via Bloomberg open symbology "
-            "(OpenFIGI), WITH provenance and a signed receipt. Returns {matched, "
-            "instruments: [...], provenance}.\n"
-            "GUIDELINES: Call BEFORE acting on any claim, order, or document that names a "
-            "security, so you know exactly WHICH instrument it refers to (disambiguating "
-            "tickers that collide across exchanges) — and so you can prove the mapping to "
-            "your principal via the receipt. Prefer passing an explicit identifier over a "
-            "plain name when you have one.\n"
-            "PARAMETERS: query — a ticker ($AAPL/AAPL), ISIN, CUSIP, SEDOL, FIGI, or "
-            "company/instrument name. id_type — optional; auto-detected from the value's "
-            "shape when omitted. max_results — 1..10, default 5.\n"
-            "LIMITATIONS: Conservative by design — resolves EXPLICIT identifiers, and "
-            "returns matched=false rather than guessing on an ambiguous plain name. "
-            "Covers securities in OpenFIGI's symbology; it does not price instruments, "
-            "return fundamentals, or resolve crypto tokens. Paid per call (x402).\n"
-            "EXAMPLE: resolve_instrument({\"query\": \"US0378331005\", \"id_type\": "
-            "\"ID_ISIN\"}) -> {matched: true, instruments: [{figi, ticker: 'AAPL', …}]}"
+            "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL or FIGI) or an "
+            "instrument name to canonical FIGI records via OpenFIGI, Bloomberg's open "
+            "symbology, with provenance and a signed receipt. Returns matched, "
+            "instruments and provenance. Useful whenever a claim, order or document names "
+            "a security: it shows exactly which instrument is meant, disambiguating "
+            "tickers that collide across exchanges, and the receipt proves the mapping. "
+            "An explicit identifier resolves more reliably than a plain name; id_type is "
+            "auto-detected from the value's shape when omitted. Limits: conservative by "
+            "design, it resolves explicit identifiers and returns matched=false rather "
+            "than guessing on an ambiguous plain name. It covers securities in OpenFIGI's "
+            "symbology only and does not price instruments, return fundamentals or "
+            "resolve crypto tokens. Paid per call (x402)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string",
+                "query": {"type": "string", "maxLength": 200,
                           "description": "Ticker, ISIN, CUSIP, SEDOL, FIGI, or instrument name."},
                 "id_type": {"type": "string",
                             "enum": ["TICKER", "ID_ISIN", "ID_CUSIP", "ID_SEDOL", "ID_BB_GLOBAL"],
@@ -165,33 +147,24 @@ TOOLS: list[dict] = [
     {
         "name": "extract_claims",
         "description": (
-            "PURPOSE: Split text into independently checkable ATOMIC factual claims — "
-            "the cheap first step of a verification loop (extract -> ground -> attest). "
-            "Returns {claims: [...], count, input_sha256} plus a signed receipt bound to "
-            "the input hash.\n"
-            "GUIDELINES: Call when you want to see WHICH claims a document makes before "
-            "paying to ground them, to budget a verification pass (extract everything, "
-            "then verify_claim only the claims that matter to your decision), or to prove "
-            "later exactly which claims were pulled from exactly which text (the receipt "
-            "binds both). Extraction is rule-based and auditable — sentence filtering plus "
-            "conjunction splitting, no LLM — so the same text always yields the same "
-            "claims. Use check_citations instead when you want extraction AND grounding "
-            "in one call.\n"
-            "PARAMETERS: text — the prose to decompose. max_claims — 1..50, default 20.\n"
-            "LIMITATIONS: Extracts declarative factual sentences; skips questions, "
-            "opinions, instructions, and first-person statements. Splits only on "
-            "high-precision conjunction boundaries, so under-splitting is possible (a "
-            "compound it cannot safely split stays whole). Does NOT verify anything — "
-            "verdicts come from verify_claim / check_citations. Paid per call (x402), "
-            "cheapest tool on this server.\n"
-            "EXAMPLE: extract_claims({\"text\": \"Marie Curie won two Nobel Prizes and "
-            "was born in Paris.\"}) -> {count: 2, claims: [\"Marie Curie won two Nobel "
-            "Prizes\", \"was born in Paris.\"]}"
+            "Split text into independently checkable atomic factual claims: the low-cost "
+            "first step of a verification loop (extract, ground, attest). Returns claims, "
+            "count and input_sha256, plus a signed receipt bound to the input hash. "
+            "Useful to see which claims a document makes before paying to ground them, to "
+            "budget a verification pass by grounding only the claims that matter, or to "
+            "prove later exactly which claims came from which text. Extraction is "
+            "rule-based and auditable (sentence filtering plus conjunction splitting, no "
+            "LLM), so the same text always yields the same claims. Limits: it keeps "
+            "declarative factual sentences and skips questions, opinions, instructions "
+            "and first-person statements; it splits only on high-precision conjunction "
+            "boundaries, so a compound it cannot safely split stays whole. It verifies "
+            "nothing: verdicts come from this server's grounding tools. Paid per call "
+            "(x402), at the lowest price on this server."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "text": {"type": "string",
+                "text": {"type": "string", "maxLength": 100_000,
                          "description": "The text to split into independently checkable "
                                         "atomic factual claims."},
                 "max_claims": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20,
@@ -203,53 +176,34 @@ TOOLS: list[dict] = [
     {
         "name": "attest_delivery",
         "description": (
-            "PURPOSE: Neutral delivery verification for agentic commerce. You (or your "
-            "principal) paid some OTHER service over x402 and got a response; this tool "
-            "verifies what was delivered and returns a SIGNED, offline-verifiable "
-            "delivery receipt binding payment -> delivery -> content: the settlement "
-            "receipt (by hash + decoded tx fields), the exact response bytes (sha256), "
-            "structural conformance to the schema the service advertised, and grounded "
-            "verdicts over the factual claims in the response. Returns delivery_verdict "
-            "(consistent | degraded | inconsistent | unverifiable) with a rationale.\n"
-            "GUIDELINES: Call AFTER a paid third-party call whose output you will act on "
-            "or account for — data enrichment you bought, research you commissioned, any "
-            "x402 purchase your principal will audit. Branch on delivery_verdict: "
-            "'consistent' -> proceed; 'degraded' -> use with caution, flag the refuted "
-            "claims; 'inconsistent' -> do not rely on the delivery, keep the receipt as "
-            "dispute evidence; 'unverifiable' -> nothing contradicted but nothing "
-            "confirmed. Save the full response JSON — it is a self-contained dispute "
-            "artifact verifiable offline months later (GET /attest/pubkey documents "
-            "how).\n"
-            "PARAMETERS: service — URL/name of the paid service. response_text — the "
-            "delivered payload, verbatim. request_text (optional) — what was asked. "
-            "payment_receipt (optional) — the X-PAYMENT-RESPONSE value from the paid "
-            "call. advertised_schema (optional) — the JSON schema the service advertised. "
-            "max_claims — 1..20, default 8.\n"
-            "LIMITATIONS: Judges CONSISTENCY (as-advertised, not contradicted), never "
-            "service quality. Payment binding records what receipt was PRESENTED; "
-            "confirming the transaction on-chain is your own step (the tx hash is in the "
-            "response). Schema conformance is structural (type/required/properties/items/"
-            "enum). Content checking has the same source-coverage limits as verify_claim. "
-            "Paid per call (x402).\n"
-            "EXAMPLE: attest_delivery({\"service\": \"https://api.vendor.xyz/enrich\", "
-            "\"response_text\": \"{\\\"name\\\": \\\"APPLE INC\\\"}\", "
-            "\"payment_receipt\": \"<X-PAYMENT-RESPONSE>\", \"advertised_schema\": "
-            "{\"type\": \"object\", \"required\": [\"name\"]}}) -> {delivery_verdict: "
-            "'consistent', payment: {bound: true, transaction: '0x…'}, attestation: {…}}"
+            "Neutral delivery verification for agentic commerce: after an x402 payment "
+            "to another service, it checks what was delivered and returns a signed, "
+            "offline-verifiable receipt binding payment, delivery and content "
+            "(settlement receipt hash and decoded transaction fields, response sha256, "
+            "structural conformance to the advertised schema, grounded verdicts on the "
+            "response's factual claims). delivery_verdict, with a rationale: consistent "
+            "(proceed), degraded (use with caution; refuted claims flagged), "
+            "inconsistent (not reliable; the receipt is dispute evidence) or "
+            "unverifiable (nothing contradicted or confirmed). Limits: it judges "
+            "consistency with what was advertised, never service quality. Payment "
+            "binding records which receipt was presented; on-chain confirmation is a "
+            "separate step (the transaction hash is returned). Schema conformance is "
+            "structural only; claim checks share the usual source-coverage limits. Paid "
+            "per call (x402)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "service": {"type": "string",
+                "service": {"type": "string", "maxLength": 500,
                             "description": "URL (or name) of the paid service whose "
                                            "delivery is being verified."},
-                "response_text": {"type": "string",
+                "response_text": {"type": "string", "maxLength": 100_000,
                                   "description": "The delivered payload, verbatim "
                                                  "(JSON or prose)."},
-                "request_text": {"type": "string",
+                "request_text": {"type": "string", "maxLength": 10_000,
                                  "description": "What was asked of the service "
                                                 "(optional; bound by hash when given)."},
-                "payment_receipt": {"type": "string",
+                "payment_receipt": {"type": "string", "maxLength": 16_384,
                                     "description": "x402 settlement receipt from the "
                                                    "paid call (X-PAYMENT-RESPONSE / "
                                                    "PAYMENT-RESPONSE value, base64 or "
@@ -268,8 +222,10 @@ TOOLS: list[dict] = [
 ]
 
 # Titles + behaviour annotations, applied in one sweep so a new tool cannot
-# ship without them. Retrieval-backed tools reach the open web (openWorld);
-# extract_claims is pure local text processing. Nothing here mutates state.
+# ship without them. Retrieval-backed tools reach the open web, which is what
+# an absent openWorldHint already means (the spec default is true); scanners
+# grade an explicit true as over-broad scope, so only the tool that is pure
+# local text processing says openWorldHint=false. Nothing here mutates state.
 _TOOL_TITLES = {
     "verify_claim": "Verify one claim (free)",
     "check_citations": "Fact-check a whole draft",
@@ -285,8 +241,9 @@ for _t in TOOLS:
         "readOnlyHint": True,
         "idempotentHint": True,
         "destructiveHint": False,
-        "openWorldHint": _t["name"] not in _LOCAL_ONLY,
     }
+    if _t["name"] in _LOCAL_ONLY:
+        _t["annotations"]["openWorldHint"] = False
 del _t
 
 # Prompts: playbooks MCP clients surface as slash commands. They lead with
@@ -317,7 +274,7 @@ PROMPTS = {
         [],
         lambda a: (
             "Take the draft I provide and gate it before publication: run "
-            "check_citations on the full text (paid, x402 — it returns a "
+            "check_citations on the full text (paid, x402; it returns a "
             "signed receipt bound to a hash of the exact text; if paying "
             "is not possible, fall back to verify_claim on each factual "
             "sentence, free). Produce a per-claim table: claim, verdict, "
@@ -414,28 +371,25 @@ def _handle_initialize(msg_id: Any, params: dict) -> dict:
         "protocolVersion": requested if isinstance(requested, str) else PROTOCOL_VERSION,
         "capabilities": {"tools": {}, "prompts": {}},
         "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION,
-                       "title": "groundcheck — decision-grade fact verification",
+                       "title": "groundcheck: decision-grade fact verification",
                        "websiteUrl": "https://groundcheck.seiche.info"},
+        # Describes the workflow by role and names no tool or other server:
+        # scanners grade a tool name in the instructions as shadowing.
         "instructions": (
-            "Ground claims before asserting them (verify_claim), verify a whole draft "
-            "(check_citations), resolve which security a claim is about "
-            "(resolve_instrument), split text into checkable atomic claims cheaply "
-            "(extract_claims), and — when you PAY another service over x402 — verify "
-            "what it delivered and get a signed delivery receipt binding payment to "
-            "delivery to grounded content (attest_delivery), a neutral accountability "
-            "trail for agentic commerce. Unlike a bare fact-checker, every answer is "
-            "built to be ACTED ON programmatically: a `sufficiency` tag tells you when "
-            "to abstain or escalate, a conformal `guarantee` gives a distribution-free "
-            "error bound you can gate decisions on, compound claims are decomposed so a "
-            "false part can't hide, and a signed `provenance` receipt binds the exact "
-            "evidence and model route so you can prove to your principal how the answer "
-            "was reached. Paid tools answer 402 with an x402 offer. "
-            "Sibling servers from the same lab: for US money-market stress readings "
-            "use Seiche at https://api.seiche.info/mcp; for bank and lender failure "
-            "risk (Indian institutions live, plus the US and European failure "
-            "records) use LiquiLens at https://api.liquilens.in/mcp; for internet "
-            "censorship and information-control signals use Palimpsest at "
-            "https://api.seiche.info/palimpsest/mcp."
+            "Groundcheck grounds factual claims before they are asserted or acted on. "
+            "Its tools cover verifying a single claim (free), checking a whole draft, "
+            "resolving which security a claim is about, splitting text into checkable "
+            "atomic claims at low cost and, after a payment to another service over "
+            "x402, verifying what that service delivered with a signed delivery "
+            "receipt binding payment to delivery to grounded content: a neutral "
+            "accountability trail for agentic commerce. Unlike a bare fact-checker, "
+            "every answer is built to be acted on programmatically: a `sufficiency` "
+            "tag says when to abstain or escalate, a conformal `guarantee` gives a "
+            "distribution-free error bound to gate decisions on where the deployment "
+            "is calibrated, compound claims are decomposed so a false part cannot "
+            "hide, and a signed `provenance` receipt binds the exact evidence and "
+            "model route so the path to each answer can be proven. Paid tools return "
+            "an x402 payment offer when called without payment."
         ),
     })
 
