@@ -28,6 +28,20 @@ stdio.
 | `attest_delivery` | Signed, offline-verifiable delivery receipt binding an x402 payment to what the paid service delivered. |
 | `attribution_badge` | Markdown badge marking content as groundchecked. |
 
+## AI disclosure
+
+`verify_claim` and `check_citations` are an opt-in AI service: a language
+model labels each retrieved source as supporting, refuting or neutral on the
+claim, and a fixed rule turns those labels into the verdict.
+`attest_delivery` is partly AI: its schema, payment and signature checks are
+rule-based, while its claim checks use the same language model step.
+`extract_claims` and `resolve_instrument` use no language model. The model
+runs only when `verify_claim`, `check_citations` or `attest_delivery` is
+called, and on a local engine only when a provider is configured. The
+calibration set holds no finance figures, so no verdict is a finance
+guarantee. Results from a current engine carry an `ai_disclosure` field with
+the full statement.
+
 ## Engine
 
 This package is a thin stdio layer. The evidence engine (retrieval, stance

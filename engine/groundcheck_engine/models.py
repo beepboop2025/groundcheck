@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
+from . import disclosure
+
 Stance = Literal["supports", "refutes", "neutral"]
 Verdict = Literal["supported", "refuted", "unverified"]
 # Why a verdict is (not) directional — SURE-RAG three-way distinction.
@@ -44,6 +46,8 @@ class ResolveResult(BaseModel):
     instruments: List[Instrument]
     provenance: InstrumentProvenance
     note: Optional[str] = None
+    # Plain statement that no language model took part (disclosure.py).
+    ai_disclosure: str = disclosure.RESOLVE
 
 
 class ClaimInstrument(BaseModel):
@@ -82,6 +86,8 @@ class VerifyResult(BaseModel):
     rationale: str
     backend: str
     classifier: str
+    # Where a language model sits in this verdict, in plain words (disclosure.py).
+    ai_disclosure: str = disclosure.GROUNDING
     sources: List[Source]
     instruments: List[ClaimInstrument] = []
     # Why the verdict is (not) directional — distinguishes no-evidence from
@@ -114,6 +120,8 @@ class CheckResult(BaseModel):
     checked: int
     backend: str
     classifier: str
+    # Where a language model sits in these verdicts (disclosure.py).
+    ai_disclosure: str = disclosure.GROUNDING
     report: List[ClaimReport]
     # Signed receipt over a deterministic subset of this response (attest.py).
     attestation: Optional[Dict[str, Any]] = None
@@ -169,6 +177,8 @@ class DeliveryResult(BaseModel):
     payment: DeliveryPayment
     backend: str
     classifier: str
+    # Which parts are rule-based and which rest on a language model (disclosure.py).
+    ai_disclosure: str = disclosure.DELIVERY
     # Signed receipt (kind "delivery") over a deterministic subset (attest.py).
     attestation: Optional[Dict[str, Any]] = None
 
@@ -179,6 +189,8 @@ class ExtractResult(BaseModel):
     count: int
     claims: List[str]
     method: str
+    # Plain statement that no language model took part (disclosure.py).
+    ai_disclosure: str = disclosure.EXTRACT
     input_sha256: str
     # Signed receipt (kind "extract") bound to the input hash (attest.py).
     attestation: Optional[Dict[str, Any]] = None

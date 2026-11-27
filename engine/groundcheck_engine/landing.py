@@ -46,6 +46,9 @@ LANDING_HTML = r"""<!doctype html>
   .links a { color:var(--mid); }
   .ex { margin-top:10px; font-size:13px; color:var(--dim); }
   .ex span { color:var(--blue); cursor:pointer; }
+  .note { margin-top:18px; font-size:14px; color:var(--mid); max-width:640px; }
+  .note b { color:var(--hi); font-weight:600; }
+  .disc { margin-top:12px; font-size:13px; color:var(--dim); }
 </style>
 </head>
 <body>
@@ -63,6 +66,8 @@ LANDING_HTML = r"""<!doctype html>
     <div class="ex">e.g. <span data-c="The Great Wall of China is visible from space with the naked eye.">a tricky one</span> · <span data-c="Python is a programming language created by Guido van Rossum.">an easy one</span></div>
     <div class="out" id="out"></div>
   </div>
+
+  <p class="note" id="ai-disclosure"><b>AI disclosure.</b> Verifying a claim or checking a draft is an opt-in AI service: a language model labels each retrieved source as supporting, refuting or neutral, and a fixed rule turns those labels into the verdict. Exact dated SOFR, EFFR and OBFR prints are compared with the New York Fed's published rate instead. Claim extraction and instrument resolution use no language model, and a delivery receipt's schema, payment and signature checks are rule-based while its claim checks use the same model step. The calibration set holds no finance figures, so no verdict here is a finance guarantee.</p>
 
   <div class="links">
     Install: <code>claude mcp add groundcheck -- npx -y groundcheck-mcp</code><br/>
@@ -137,6 +142,11 @@ function render(j) {
     wrap.appendChild(row);
   });
   out.appendChild(wrap);
+
+  // The engine states where a language model sat in this result.
+  if (typeof j.ai_disclosure === "string" && j.ai_disclosure) {
+    out.appendChild(el("div", "disc", j.ai_disclosure));
+  }
 }
 </script>
 </body>

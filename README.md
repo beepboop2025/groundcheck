@@ -28,6 +28,29 @@ advertised and issues a signed, offline-verifiable **delivery receipt** binding 
 delivery → grounded content — the neutral accountability trail the a2a-payments
 literature calls the missing layer ([docs/delivery-attestation.md](docs/delivery-attestation.md)).
 
+## AI disclosure
+
+Groundcheck uses a language model in one step only: stance classification on
+retrieved evidence. That makes the grounding routes an opt-in AI service: the
+model runs only when `/verify`, `/check` or `/attest-delivery` is called (the
+last for its claim checks), and on your own engine only when a provider is
+configured. `/extract` and `/resolve` never call it.
+
+| Route (MCP tool) | Language model? | How the answer is made |
+|---|---|---|
+| `POST /verify` (`verify_claim`) and `POST /check` (`check_citations`) | Yes, an opt-in AI service | A language model (free-tier providers through `free-llm-router`) labels each retrieved passage as supporting, refuting or neutral on the claim, and a fixed rule in `verdict.py` turns those labels into the verdict and its confidence. Retrieval defaults to Wikipedia and GDELT news. Under that default, exact dated SOFR, EFFR and OBFR percentage claims are compared with the New York Fed's published rate instead, with no model. |
+| `POST /attest-delivery` (`attest_delivery`) | Partly | The schema conformance check, the payment receipt binding, the hashes and the signature are rule-based. The claim checks under `grounding` reuse the `/check` pipeline, so those verdicts, and a `delivery_verdict` that rests on them, come from the same language model step. |
+| `POST /extract` (`extract_claims`) | No | Sentence rules and conjunction splitting: the same text always yields the same claims. |
+| `POST /resolve` (`resolve_instrument`) | No | Rule-based matching against OpenFIGI open symbology records. |
+
+The calibration set holds general-knowledge and ticker-identity claims, not
+finance figures, so no verdict or `guarantee` is a finance guarantee until a
+deployment is recalibrated on finance claims. Every result carries an
+`ai_disclosure` field with the statement for its route, so the label travels
+with the answer, and the `classifier` field names what ran. With no provider
+configured, no model runs and every verdict outside the New York Fed route is
+`unverified`.
+
 ## Architecture
 
 Two parts, each in the language that fits it:
@@ -171,13 +194,16 @@ recalibrate with domain claims before leaning on it in a new domain.
 ### Machine-payable hosting (x402)
 
 A hosted engine can charge AI agents per call in USDC over the
-[x402 protocol](https://x402.org) — HTTP 402 + signed transfer authorization,
+[x402 protocol](https://x402.org): HTTP 402 plus a signed transfer authorization,
 no accounts or API keys. Dormant unless `GROUNDCHECK_X402_PAY_TO` is set;
-`/verify` stays free forever and is the way to evaluate output before paying;
-the paid surface prices as a granular verification loop: **extract $0.005 → ground
-$0.02 → delivery-attestation bundle $0.05** (plus `/resolve` at $0.005).
-Both protocol generations (v1 and v2) are accepted, and agents can read the
-offer at `GET /.well-known/x402`. Full operator guide: [docs/x402.md](docs/x402.md).
+`/verify` stays free forever and is the way to evaluate output before paying.
+Priced calls: **`/extract` $0.005, `/resolve` $0.005 and `/attest-delivery`
+$0.05**. `/check` is not on the price list, because its verdicts come from a
+language model ([AI disclosure](#ai-disclosure)); the hosted engine still
+answers an unpaid `/check` call with an x402 offer, whose amount
+`GET /.well-known/x402` states. Both protocol generations (v1 and v2) are
+accepted, and agents can read every offer at `GET /.well-known/x402`. Full
+operator guide: [docs/x402.md](docs/x402.md).
 
 Server side:
 

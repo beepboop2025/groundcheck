@@ -18,12 +18,18 @@ Surface and payment mirror the REST side exactly:
 Unpaid calls to a priced tool answer HTTP 402 with the offer, so a
 wallet-holding agent can pay and retry. Free daily quota applies first, exactly
 like the REST paths.
+
+Where a language model sits (disclosure.py): stance classification in
+verify_claim and check_citations, and in the claim checks of attest_delivery.
+resolve_instrument and extract_claims are rule-based. Each description says so
+in the short forms from disclosure.py (never naming another tool, per the
+hygiene gate), and every result carries the full statement.
 """
 from __future__ import annotations
 
 from typing import Any, Callable, Awaitable
 
-from . import config, x402
+from . import config, disclosure, x402
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "groundcheck"
@@ -57,21 +63,21 @@ TOOLS: list[dict] = [
     {
         "name": "verify_claim",
         "description": (
-            "Fact-check one claim against live retrieved sources. Returns verdict "
+            "Fact-check one claim against live retrieved sources. "
+            + disclosure.TOOL_GROUNDING + " Returns verdict "
             "(supported, refuted or unverified), sufficiency, a conformal guarantee, "
             "per-part atoms and a signed provenance receipt binding the evidence and "
-            "model route. "
-            "Sufficiency other than sufficient (insufficient means one weak source; "
-            "no_sources, no_stance, conflict) is a reason to abstain or escalate. When "
-            "guarantee.certified is true, the error probability is calibrated to at most "
-            "guarantee.alpha, distribution-free, so supported plus certified can gate a "
-            "decision. Compound claims are verified part by part and recombined "
-            "weakest-link, so a true part cannot carry a false one. Limits: evidence is "
-            "retrievable web, encyclopedic and news sources, so very recent, private, "
-            "niche-technical or opinion claims return unverified or insufficient rather "
+            "model route. Sufficiency other than sufficient (insufficient, no_sources, "
+            "no_stance, conflict) is a reason to abstain or escalate. When "
+            "guarantee.certified is true, the error probability is calibrated to at "
+            "most guarantee.alpha, so supported plus certified can gate a decision. "
+            "Compound claims are verified part by part and recombined weakest-link. "
+            "Limits: evidence is web, encyclopedic and news sources, so very recent, "
+            "private, niche or opinion claims return unverified or insufficient rather "
             "than a guess. The guarantee exists only on calibrated deployments, for "
-            "claims exchangeable with the calibration set. It checks source support, not "
-            "ultimate truth. Free."
+            "claims exchangeable with the calibration set, which holds "
+            + disclosure.FINANCE_PHRASE + ". It checks source support, not ultimate "
+            "truth. Free."
         ),
         "inputSchema": {
             "type": "object",
@@ -90,16 +96,17 @@ TOOLS: list[dict] = [
         "description": (
             "Fact-check every factual claim in a block of text, such as an AI-generated "
             "draft or document before it is published or acted on, and return a "
-            "per-claim report. Claims are extracted automatically. Each reported claim "
-            "carries a verdict, sufficiency (anything but sufficient is a reason to "
-            "abstain or escalate) and a conformal guarantee when certified. The whole "
-            "response is covered by a signed receipt bound to a hash of the submitted "
-            "text, so it can later prove exactly which document was checked and what came "
-            "back. Limits: only declarative factual sentences are checked (questions, "
-            "opinions and instructions are skipped), at most max_claims of them, and "
-            "evidence comes from retrievable web, encyclopedic and news sources, so very "
-            "recent, private, niche-technical or opinion claims come back unverified or "
-            "insufficient. Paid per call (x402): an unpaid call returns the payment offer."
+            "per-claim report. " + disclosure.TOOL_GROUNDING + " Claims are extracted "
+            "automatically. Each reported claim carries a verdict, sufficiency (anything "
+            "but sufficient is a reason to abstain or escalate) and a conformal guarantee "
+            "when certified. " + disclosure.TOOL_FINANCE + " The whole response is "
+            "covered by a signed receipt bound to a hash of the submitted text, so it can "
+            "later prove which document was checked. Limits: only declarative factual "
+            "sentences are checked (questions, opinions and instructions are skipped), at "
+            "most max_claims of them, and evidence comes from web, encyclopedic and news "
+            "sources, so very recent, private, niche or opinion claims come back "
+            "unverified or insufficient. Paid per call (x402): an unpaid call returns the "
+            "payment offer."
         ),
         "inputSchema": {
             "type": "object",
@@ -118,7 +125,8 @@ TOOLS: list[dict] = [
         "description": (
             "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL or FIGI) or an "
             "instrument name to canonical FIGI records via OpenFIGI, Bloomberg's open "
-            "symbology, with provenance and a signed receipt. Returns matched, "
+            "symbology, with provenance and a signed receipt. "
+            + disclosure.TOOL_RULE_BASED + " Returns matched, "
             "instruments and provenance. Useful whenever a claim, order or document names "
             "a security: it shows exactly which instrument is meant, disambiguating "
             "tickers that collide across exchanges, and the receipt proves the mapping. "
@@ -181,15 +189,14 @@ TOOLS: list[dict] = [
             "offline-verifiable receipt binding payment, delivery and content "
             "(settlement receipt hash and decoded transaction fields, response sha256, "
             "structural conformance to the advertised schema, grounded verdicts on the "
-            "response's factual claims). delivery_verdict, with a rationale: consistent "
-            "(proceed), degraded (use with caution; refuted claims flagged), "
-            "inconsistent (not reliable; the receipt is dispute evidence) or "
-            "unverifiable (nothing contradicted or confirmed). Limits: it judges "
-            "consistency with what was advertised, never service quality. Payment "
-            "binding records which receipt was presented; on-chain confirmation is a "
-            "separate step (the transaction hash is returned). Schema conformance is "
-            "structural only; claim checks share the usual source-coverage limits. Paid "
-            "per call (x402)."
+            "response's factual claims). " + disclosure.TOOL_DELIVERY + " "
+            "delivery_verdict, with a rationale: consistent (proceed), degraded (use "
+            "with caution; refuted claims flagged), inconsistent (not reliable; the "
+            "receipt is dispute evidence) or unverifiable (nothing contradicted or "
+            "confirmed). Limits: it judges consistency with what was advertised, never "
+            "service quality. Payment binding records which receipt was presented; "
+            "on-chain confirmation is a separate step. Claim checks share the usual "
+            "source-coverage limits. Paid per call (x402)."
         ),
         "inputSchema": {
             "type": "object",
@@ -382,14 +389,13 @@ def _handle_initialize(msg_id: Any, params: dict) -> dict:
             "atomic claims at low cost and, after a payment to another service over "
             "x402, verifying what that service delivered with a signed delivery "
             "receipt binding payment to delivery to grounded content: a neutral "
-            "accountability trail for agentic commerce. Unlike a bare fact-checker, "
-            "every answer is built to be acted on programmatically: a `sufficiency` "
+            "accountability trail for agentic commerce. " + disclosure.SERVER_NOTE + " "
+            "Every answer is built to be acted on programmatically: a `sufficiency` "
             "tag says when to abstain or escalate, a conformal `guarantee` gives a "
-            "distribution-free error bound to gate decisions on where the deployment "
-            "is calibrated, compound claims are decomposed so a false part cannot "
-            "hide, and a signed `provenance` receipt binds the exact evidence and "
-            "model route so the path to each answer can be proven. Paid tools return "
-            "an x402 payment offer when called without payment."
+            "distribution-free error bound where the deployment is calibrated, "
+            "compound claims are decomposed so a false part cannot hide, and a "
+            "signed `provenance` receipt binds the exact evidence and model route. "
+            "Paid tools return an x402 payment offer when unpaid."
         ),
     })
 

@@ -47,18 +47,18 @@ function engineDown(claim: string): VerifyResult {
 
 server.tool(
   "verify_claim",
-  "Fact-check one claim against live retrieved sources. Returns verdict (supported, " +
-    "refuted or unverified), sufficiency, a conformal guarantee, per-part atoms and a " +
-    "signed provenance receipt binding the evidence and model route. Sufficiency other than " +
-    "sufficient (insufficient means one weak source; no_sources, no_stance, conflict) is a " +
-    "reason to abstain or escalate. When guarantee.certified is true, the error probability " +
-    "is calibrated to at most guarantee.alpha, distribution-free, so supported plus " +
-    "certified can gate a decision. Compound claims are verified part by part and " +
-    "recombined weakest-link, so a true part cannot carry a false one. Limits: evidence is " +
-    "retrievable web, encyclopedic and news sources, so very recent, private, " +
-    "niche-technical or opinion claims return unverified or insufficient rather than a " +
-    "guess. The guarantee exists only on calibrated deployments, for claims exchangeable " +
-    "with the calibration set. It checks source support, not ultimate truth. Free.",
+  "Fact-check one claim against live retrieved sources. Opt-in AI service: a language " +
+    "model labels each source's stance. Returns verdict (supported, refuted or unverified), " +
+    "sufficiency, a conformal guarantee, per-part atoms and a signed provenance receipt " +
+    "binding the evidence and model route. Sufficiency other than sufficient (insufficient, " +
+    "no_sources, no_stance, conflict) is a reason to abstain or escalate. When " +
+    "guarantee.certified is true, the error probability is calibrated to at most " +
+    "guarantee.alpha, so supported plus certified can gate a decision. Compound claims are " +
+    "verified part by part and recombined weakest-link. Limits: evidence is web, " +
+    "encyclopedic and news sources, so very recent, private, niche or opinion claims return " +
+    "unverified or insufficient rather than a guess. The guarantee exists only on calibrated " +
+    "deployments, for claims exchangeable with the calibration set, which holds no finance " +
+    "figures. It checks source support, not ultimate truth. Free.",
   {
     claim: z.string().max(10_000).describe("The factual claim to verify, written as one complete sentence."),
     maxSources: z.number().int().min(1).max(10).default(5).optional(),
@@ -79,11 +79,13 @@ server.tool(
 server.tool(
   "check_citations",
   "Fact-check every factual claim in a block of text, such as an AI-generated draft or " +
-    "document before it is published or acted on, and return a per-claim report. Claims are " +
-    "extracted automatically. Each reported claim carries a verdict, sufficiency (anything " +
-    "but sufficient is a reason to abstain or escalate) and a conformal guarantee when " +
-    "certified. The response is covered by a signed receipt bound to a hash of the " +
-    "submitted text, so it can later prove which document was checked. Limits: only " +
+    "document before it is published or acted on, and return a per-claim report. Opt-in AI " +
+    "service: a language model labels each source's stance. Claims are extracted " +
+    "automatically. Each reported claim carries a verdict, sufficiency (anything but " +
+    "sufficient is a reason to abstain or escalate) and a conformal guarantee when " +
+    "certified. The calibration set holds no finance figures. The response is covered by a " +
+    "signed receipt bound to a hash of the submitted text, so it can later prove which " +
+    "document was checked. Limits: only " +
     "declarative factual sentences are checked (questions and opinions are skipped), at " +
     "most maxClaims of them, with the same source-coverage limits as single-claim " +
     "verification. Paid per call on the hosted engine (x402); free on a local engine.",
@@ -107,7 +109,8 @@ server.tool(
   "resolve_instrument",
   "Resolve a security identifier (ticker, ISIN, CUSIP, SEDOL or FIGI) or an instrument " +
     "name to canonical FIGI records via OpenFIGI, Bloomberg's open symbology, with " +
-    "provenance and a signed receipt. Useful whenever a claim, order or document names a " +
+    "provenance and a signed receipt. Rule-based, no language model. Useful whenever a " +
+    "claim, order or document names a " +
     "security: it shows exactly which instrument is meant, disambiguating colliding " +
     "tickers, and the receipt proves the mapping. An explicit identifier resolves more " +
     "reliably than a plain name; idType is auto-detected when omitted. Limits: conservative " +
@@ -175,14 +178,14 @@ server.tool(
     "service, it checks what was delivered and returns a signed, offline-verifiable receipt " +
     "binding payment, delivery and content (settlement receipt hash and decoded transaction " +
     "fields, response sha256, structural conformance to the advertised schema, grounded " +
-    "verdicts on the response's factual claims). delivery_verdict, with a rationale: " +
+    "verdicts on the response's factual claims). The claim checks use a language model for " +
+    "stance; the other checks are rule-based. delivery_verdict, with a rationale: " +
     "consistent (proceed), degraded (use with caution; refuted claims flagged), " +
     "inconsistent (not reliable; the receipt is dispute evidence) or unverifiable (nothing " +
     "contradicted or confirmed). Limits: it judges consistency with what was advertised, " +
     "never service quality. Payment binding records which receipt was presented; on-chain " +
-    "confirmation is a separate step (the transaction hash is returned). Schema conformance " +
-    "is structural only; claim checks share the usual source-coverage limits. Paid per call " +
-    "on the hosted engine (x402).",
+    "confirmation is a separate step. Claim checks share the usual source-coverage limits. " +
+    "Paid per call on the hosted engine (x402).",
   {
     service: z.string().min(1).max(500)
       .describe("URL (or name) of the paid service whose delivery is being verified."),

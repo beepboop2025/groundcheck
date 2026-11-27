@@ -42,6 +42,9 @@ export interface ResolveResult {
     authenticated: boolean;
   };
   note: string | null;
+  // Plain statement of where a language model sits in this result (engine
+  // disclosure.py). Optional: engines older than the field omit it.
+  ai_disclosure?: string;
 }
 
 // Conformal certification of a verdict (engine conformal.py). Present only on
@@ -74,6 +77,9 @@ export interface VerifyResult {
   rationale: string;
   backend: string;
   classifier: string;
+  // Plain statement of where a language model sits in this result (engine
+  // disclosure.py). Optional: engines older than the field omit it.
+  ai_disclosure?: string;
   sources: Source[];
   instruments?: ClaimInstrument[];
   // Why the verdict is (not) directional (SURE-RAG three-way distinction).
@@ -105,6 +111,9 @@ export interface CheckResult {
   checked: number;
   backend: string;
   classifier: string;
+  // Plain statement of where a language model sits in this result (engine
+  // disclosure.py). Optional: engines older than the field omit it.
+  ai_disclosure?: string;
   report: ClaimReport[];
   // See VerifyResult.attestation.
   attestation?: Record<string, unknown> | null;
@@ -114,6 +123,9 @@ export interface ExtractResult {
   count: number;
   claims: string[];
   method: string;
+  // Plain statement of where a language model sits in this result (engine
+  // disclosure.py). Optional: engines older than the field omit it.
+  ai_disclosure?: string;
   input_sha256: string;
   // Signed receipt (kind "extract") bound to the input hash.
   attestation?: Record<string, unknown> | null;
@@ -140,6 +152,9 @@ export interface DeliveryResult {
   };
   backend: string;
   classifier: string;
+  // Plain statement of where a language model sits in this result (engine
+  // disclosure.py). Optional: engines older than the field omit it.
+  ai_disclosure?: string;
   // Signed receipt (kind "delivery") over a deterministic subset.
   attestation?: Record<string, unknown> | null;
 }

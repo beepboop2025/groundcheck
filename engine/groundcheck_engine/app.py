@@ -10,6 +10,10 @@ Endpoints:
   POST /attest-delivery  signed delivery receipt for a third-party paid exchange
   GET  /attest/pubkey  Ed25519 public key + how to verify response receipts
   GET/POST /mcp     streamable-HTTP MCP transport (the 5 tools, by URL)
+
+Every result says where a language model sits in it, in `ai_disclosure`
+(disclosure.py): stance classification on /verify, /check and the claim
+checks of /attest-delivery; none on /extract or /resolve.
 """
 import asyncio
 import functools
@@ -84,7 +88,11 @@ def _custom_openapi() -> dict:
         "/attest-delivery with {service, response_text, payment_receipt?, "
         "advertised_schema?} to verify what a PAID third-party service "
         "delivered and receive a signed, offline-verifiable delivery receipt "
-        "binding payment to delivery to grounded content (x402 paid)."
+        "binding payment to delivery to grounded content (x402 paid). "
+        "Where a language model sits: stance classification on /verify, /check "
+        "and the claim checks of /attest-delivery (an opt-in AI service); "
+        "/extract and /resolve are rule-based and use no model. Every result "
+        "states this in its ai_disclosure field."
     )
     schemes = schema.setdefault("components", {}).setdefault("securitySchemes", {})
     schemes["x402"] = {
@@ -637,6 +645,9 @@ async def search(q: str, n: int = 5) -> dict:
 
 @app.post("/verify", response_model=VerifyResult)
 async def verify(req: VerifyRequest, response: Response) -> VerifyResult:
+    """Ground one factual claim (free). An opt-in AI service: a language model
+    labels each retrieved source's stance and a fixed rule sets the verdict, as
+    the result's ai_disclosure field states."""
     result, cached = await _verify_claim(req.claim, req.max_sources)
     response.headers["X-Groundcheck-Cache"] = "hit" if cached else "miss"
     return result
@@ -645,7 +656,8 @@ async def verify(req: VerifyRequest, response: Response) -> VerifyResult:
 @app.post("/resolve", response_model=ResolveResult)
 async def resolve(req: ResolveRequest) -> ResolveResult:
     """Attested instrument-identity enrichment: canonical FIGI records (with
-    provenance) for a ticker / ISIN / CUSIP / SEDOL / FIGI / name."""
+    provenance) for a ticker / ISIN / CUSIP / SEDOL / FIGI / name. Rule-based,
+    no language model."""
     return await instruments.resolve_instrument(req.query, req.id_type, req.max_results)
 
 
@@ -1001,6 +1013,9 @@ async def _check_text(text: str, max_claims: int) -> Tuple[CheckResult, int]:
 
 @app.post("/check", response_model=CheckResult)
 async def check(req: CheckRequest, response: Response) -> CheckResult:
+    """Extract every factual claim in a document and ground each one. An
+    opt-in AI service with the same language model stance step as /verify, as
+    the result's ai_disclosure field states."""
     result, hits = await _check_text(req.text, req.max_claims)
     response.headers["X-Groundcheck-Cache-Hits"] = str(hits)
     return result
@@ -1101,5 +1116,7 @@ async def _attest_delivery_result(req: AttestDeliveryRequest) -> DeliveryResult:
 async def attest_delivery(req: AttestDeliveryRequest) -> DeliveryResult:
     """Neutral delivery verification for agentic commerce: a signed,
     offline-verifiable receipt binding an x402 payment to what the paid
-    service actually delivered (delivery.py has the judgment rules)."""
+    service actually delivered (delivery.py has the judgment rules). The
+    schema, payment and signature checks are rule-based; the claim checks use
+    the language model stance step of /check (see ai_disclosure)."""
     return await _attest_delivery_result(req)
