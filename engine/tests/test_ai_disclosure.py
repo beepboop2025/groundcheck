@@ -11,14 +11,15 @@ pins the statement in four places:
    never do, and the New York Fed route answers without it;
 2. every result (REST JSON and MCP tool text) carries the statement for its
    route from disclosure.py, and the signed receipts still verify;
-3. the advertised MCP metadata on both surfaces carries the short forms, and
-   no description, instruction or prompt lets a verdict make the decision (AI
+3. the advertised MCP metadata on both surfaces carries the short forms, no
+   description, instruction or prompt lets a verdict make the decision (AI
    never approves; the scanner rules themselves live in
-   test_metadata_hygiene.py);
+   test_metadata_hygiene.py), and the pre-publication prompt never asks the
+   agent to pay for the whole-document check;
 4. the copy: README, npm README, both llms.txt copies, landing page,
    docs/x402.md, docs/delivery-attestation.md and SKILL.md disclose it, /check
-   carries no typed price, and every other typed price equals the engine's
-   configured default.
+   carries no typed price, every other typed price equals the engine's
+   configured default, and neither llms.txt copy carries a dash.
 """
 from __future__ import annotations
 
@@ -293,6 +294,19 @@ def test_no_surface_lets_a_verdict_make_the_decision():
         assert "a person or a rule decides" in surface()["verify_claim"], surface.__name__
 
 
+def test_draft_prompt_leads_with_the_free_check_and_sells_nothing():
+    """The pre-publication prompt offers the free per-sentence check first,
+    never asks the agent to pay for the whole-document check (it is not on the
+    price list), names the model step and leaves the decision with the author."""
+    title, desc, args, body = mcp_http.PROMPTS["pre_publish_gate"]
+    text = body({a["name"]: "x" for a in args})
+    assert text.index("verify_claim") < text.index("check_citations")
+    assert "(free)" in text and "not on the price list" in text
+    assert not re.search(r"\bpa(?:id|y|ying)\b", text, re.I), "the prompt asks the agent to pay"
+    assert "language model" in text and "not an approval" in text and "I decide" in text
+    assert not DASHES.search(" ".join((title, desc, text)))
+
+
 # ---- 5. the copy ----------------------------------------------------------------
 
 def _read(rel: str) -> str:
@@ -333,6 +347,11 @@ def test_copy_discloses_the_model(where):
 
 def test_both_llms_txt_copies_match():
     assert _read("llms.txt") == _read("engine/groundcheck_engine/llms.txt")
+
+
+@pytest.mark.parametrize("rel", ["llms.txt", "engine/groundcheck_engine/llms.txt"])
+def test_llms_txt_carries_no_dash(rel):
+    assert not DASHES.search(_read(rel)), f"{rel}: em or en dash"
 
 
 def test_readme_table_covers_every_route():

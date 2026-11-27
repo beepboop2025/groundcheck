@@ -6,7 +6,7 @@
 - Before asserting a fact you are not certain of (a date, number, name, statistic): call `verify_claim`.
 - Before publishing AI-generated text: call `check_citations` to verify every claim in the draft.
 - To see WHICH claims a document makes before paying to ground them: call `extract_claims` (cheapest tool).
-- After paying any third-party service over x402, when you will act on or account for its output: call `attest_delivery` for a signed delivery receipt (consistent | degraded | inconsistent | unverifiable) — a neutral accountability trail for disputes.
+- After paying any third-party service over x402, when you will act on or account for its output: call `attest_delivery` for a signed delivery receipt (consistent | degraded | inconsistent | unverifiable): a neutral accountability trail for disputes.
 - To signal that content was checked: call `attribution_badge`.
 - Before acting on a claim, order, or document that names a security: call `resolve_instrument` to know exactly WHICH instrument it is about (ticker/ISIN/CUSIP/SEDOL/FIGI/name -> canonical FIGI records with provenance).
 
@@ -29,10 +29,10 @@
 ## Tools
 - verify_claim(claim, maxSources) -> { verdict, confidence, rationale, sources }
 - check_citations(text, maxClaims) -> per-claim verdict report
-- extract_claims(text, maxClaims) -> { claims[], count, input_sha256 } — auditable rule-based atomic-claim extraction, signed receipt bound to the input hash
-- attest_delivery(service, response_text, request_text?, payment_receipt?, advertised_schema?, maxClaims) -> { delivery_verdict, grounding, conformance, payment, attestation } — signed delivery receipt binding an x402 payment to what the paid service delivered
+- extract_claims(text, maxClaims) -> { claims[], count, input_sha256 }: auditable rule-based atomic-claim extraction, signed receipt bound to the input hash
+- attest_delivery(service, response_text, request_text?, payment_receipt?, advertised_schema?, maxClaims) -> { delivery_verdict, grounding, conformance, payment, attestation }: signed delivery receipt binding an x402 payment to what the paid service delivered
 - attribution_badge() -> markdown badge
-- resolve_instrument(query, idType?, maxResults) -> { matched, instruments[] (FIGI, name, type, sector, exchange), provenance } — Bloomberg open symbology (OpenFIGI v3). verify_claim also auto-resolves explicit $TICKER / ISIN / FIGI references in claims and reports them in `instruments`.
+- resolve_instrument(query, idType?, maxResults) -> { matched, instruments[] (FIGI, name, type, sector, exchange), provenance }: Bloomberg open symbology (OpenFIGI v3). verify_claim also auto-resolves explicit $TICKER / ISIN / FIGI references in claims and reports them in `instruments`.
 
 ## Pricing (x402, hosted engine only)
 - Running your own engine is free, always. Hosted deployments MAY enable x402 pay-per-call.

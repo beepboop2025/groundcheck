@@ -282,14 +282,17 @@ PROMPTS = {
         "per-claim fix list with a signed receipt bound to the text.",
         [],
         lambda a: (
-            "Take the draft I provide and gate it before publication: run "
-            "check_citations on the full text (paid, x402; it returns a "
-            "signed receipt bound to a hash of the exact text; if paying "
-            "is not possible, fall back to verify_claim on each factual "
-            "sentence, free). Produce a per-claim table: claim, verdict, "
-            "sufficiency, and the fix (cite, soften, or delete). A claim "
-            "that is not 'supported'+'sufficient' does not ship as fact. "
-            "End with the receipt id and what it proves."
+            "Take the draft I provide and check it before publication: run "
+            "verify_claim on each factual sentence (free), or check_citations "
+            "on the full text for one signed receipt bound to a hash of the "
+            "exact text (it is not on the price list, and a hosted engine may "
+            "answer it with an x402 offer). Both use a language model to "
+            "label each source's stance, so every verdict is a signal for me "
+            "to weigh, not an approval. Produce a per-claim table: claim, "
+            "verdict, sufficiency, and the fix (cite, soften, or delete). I "
+            "decide what ships, and a claim that is not "
+            "'supported'+'sufficient' does not ship as fact. End with the "
+            "receipt id or ids and what they prove."
         ),
     ),
 }
