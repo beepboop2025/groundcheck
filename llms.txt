@@ -1,17 +1,24 @@
 # Groundcheck
 
-> Verification layer for AI agents and agentic commerce. Groundcheck is verified enrichment plus delivery accountability: it grounds factual claims against live web sources (Wikipedia + world news) and returns machine-verified verdicts with confidence scores and cited sources — and when an agent PAYS another service over x402, Groundcheck verifies what was delivered and issues a signed, offline-verifiable delivery receipt binding payment to delivery to grounded content. Identity attestation (x401, ERC-8004) verifies who an agent is; Groundcheck verifies what it says — and what it was sold.
+> Verification layer for AI agents and agentic commerce. Groundcheck is verified enrichment plus delivery accountability: it grounds factual claims against live web sources (Wikipedia + world news) and returns verdicts with confidence scores and cited sources (a language model labels each source's stance, an opt-in AI step; see AI disclosure below); and when an agent PAYS another service over x402, Groundcheck verifies what was delivered and issues a signed, offline-verifiable delivery receipt binding payment to delivery to grounded content. Identity attestation (x401, ERC-8004) verifies who an agent is; Groundcheck verifies what it says, and what it was sold.
 
 ## When to use
 - Before asserting a fact you are not certain of (a date, number, name, statistic): call `verify_claim`.
 - Before publishing AI-generated text: call `check_citations` to verify every claim in the draft.
 - To see WHICH claims a document makes before paying to ground them: call `extract_claims` (cheapest tool).
-- After paying any third-party service over x402, when you will act on or account for its output: call `attest_delivery` for a signed delivery receipt (consistent | degraded | inconsistent | unverifiable) — a neutral accountability trail for disputes.
+- After paying any third-party service over x402, when you will act on or account for its output: call `attest_delivery` for a signed delivery receipt (consistent | degraded | inconsistent | unverifiable): a neutral accountability trail for disputes.
 - To signal that content was checked: call `attribution_badge`.
 - Before acting on a claim, order, or document that names a security: call `resolve_instrument` to know exactly WHICH instrument it is about (ticker/ISIN/CUSIP/SEDOL/FIGI/name -> canonical FIGI records with provenance).
 
+## AI disclosure
+- verify_claim and check_citations (POST /verify, POST /check) are an opt-in AI service: a language model labels each retrieved source as supporting, refuting or neutral on the claim, and a fixed rule turns those labels into the verdict. Retrieval defaults to Wikipedia and GDELT news. Under that default, exact dated SOFR, EFFR and OBFR percentage claims are compared with the New York Fed's published rate instead, with no model.
+- attest_delivery (POST /attest-delivery) is partly AI: the schema conformance check, the payment receipt binding, the hashes and the signature are rule-based; its claim checks use the same language model step.
+- extract_claims and resolve_instrument (POST /extract, POST /resolve) use no language model.
+- The calibration set holds general-knowledge and ticker-identity claims, not finance figures: no verdict or guarantee is a finance guarantee.
+- Every result carries an ai_disclosure field with the statement for its route; the classifier field names what ran.
+
 ## Remote MCP (no install)
-- Add the hosted engine as a remote MCP server by URL: https://groundcheck.seiche.info/mcp — speaks streamable-HTTP JSON-RPC (initialize, tools/list, tools/call). Works in Claude/ChatGPT/Cursor connectors and MCP gateways (Smithery, Glama). verify_claim is free; check_citations, resolve_instrument, extract_claims, and attest_delivery are x402-paid with the same free daily quota as the REST paths.
+- Add the hosted engine as a remote MCP server by URL: https://groundcheck.seiche.info/mcp (streamable-HTTP JSON-RPC: initialize, tools/list, tools/call). Works in Claude/ChatGPT/Cursor connectors and MCP gateways (Smithery, Glama). verify_claim is free; check_citations, resolve_instrument, extract_claims, and attest_delivery are x402-paid with the same free daily quota as the REST paths. check_citations is not on the price list (see AI disclosure and Pricing).
 
 ## Install
 - Engine (Python, FastAPI): `make install && export GROQ_API_KEY=... && make engine` (runs on :8723)
@@ -22,19 +29,19 @@
 ## Tools
 - verify_claim(claim, maxSources) -> { verdict, confidence, rationale, sources }
 - check_citations(text, maxClaims) -> per-claim verdict report
-- extract_claims(text, maxClaims) -> { claims[], count, input_sha256 } — auditable rule-based atomic-claim extraction, signed receipt bound to the input hash
-- attest_delivery(service, response_text, request_text?, payment_receipt?, advertised_schema?, maxClaims) -> { delivery_verdict, grounding, conformance, payment, attestation } — signed delivery receipt binding an x402 payment to what the paid service delivered
+- extract_claims(text, maxClaims) -> { claims[], count, input_sha256 }: auditable rule-based atomic-claim extraction, signed receipt bound to the input hash
+- attest_delivery(service, response_text, request_text?, payment_receipt?, advertised_schema?, maxClaims) -> { delivery_verdict, grounding, conformance, payment, attestation }: signed delivery receipt binding an x402 payment to what the paid service delivered
 - attribution_badge() -> markdown badge
-- resolve_instrument(query, idType?, maxResults) -> { matched, instruments[] (FIGI, name, type, sector, exchange), provenance } — Bloomberg open symbology (OpenFIGI v3). verify_claim also auto-resolves explicit $TICKER / ISIN / FIGI references in claims and reports them in `instruments`.
+- resolve_instrument(query, idType?, maxResults) -> { matched, instruments[] (FIGI, name, type, sector, exchange), provenance }: Bloomberg open symbology (OpenFIGI v3). verify_claim also auto-resolves explicit $TICKER / ISIN / FIGI references in claims and reports them in `instruments`.
 
 ## Pricing (x402, hosted engine only)
 - Running your own engine is free, always. Hosted deployments MAY enable x402 pay-per-call.
 - POST /verify (single claim): always free, rate-limited.
 - POST /extract (claim extraction only): free daily quota per IP, then USD 0.005 per call in USDC.
 - POST /resolve (attested instrument identity): same free daily quota, then USD 0.005 per call in USDC.
-- POST /check (batch document check): same free daily quota, then USD 0.02 per call in USDC.
+- POST /check (batch document check, an opt-in AI service): not on the price list, because its verdicts come from a language model. The hosted engine still answers an unpaid call with an x402 offer; GET /.well-known/x402 states its amount.
 - POST /attest-delivery (signed delivery receipt for a third-party paid exchange): same free daily quota, then USD 0.05 per call in USDC.
-- The verification loop prices granularly: extract cheap (0.005), ground what matters (0.02), buy the payment-to-delivery accountability bundle (0.05).
+- The verification loop prices granularly: extract cheap (0.005), then buy the payment-to-delivery accountability bundle (0.05).
 - Payment: x402 protocol, v1 and v2 both accepted (X-PAYMENT or PAYMENT-SIGNATURE header), "exact" scheme, USDC on Base (eip155:8453). No account or API key.
 - Machine-readable manifest: GET /.well-known/x402 on any x402-enabled deployment.
-- Flow: POST /check -> HTTP 402 with payment requirements -> sign EIP-3009 USDC authorization -> retry with payment header -> result + settlement receipt in X-PAYMENT-RESPONSE / PAYMENT-RESPONSE.
+- Flow: POST /extract -> HTTP 402 with payment requirements -> sign EIP-3009 USDC authorization -> retry with payment header -> result + settlement receipt in X-PAYMENT-RESPONSE / PAYMENT-RESPONSE.

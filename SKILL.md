@@ -18,6 +18,13 @@ Use the `groundcheck` MCP server to fact-check before you commit to an answer.
 2. Call `verify_claim` with it.
 3. If the verdict is `refuted` or `unverified`, do NOT assert the claim — correct it, hedge it, or cite the returned sources. Only state it plainly when `supported` with reasonable confidence.
 
+## AI disclosure
+`verify_claim` and `check_citations` are an opt-in AI service: a language model labels each
+retrieved source's stance and a fixed rule sets the verdict. `attest_delivery` uses the same
+model step for its claim checks; its schema, payment and signature checks are rule-based.
+`extract_claims` and `resolve_instrument` use no language model. The calibration set holds no
+finance figures, so no verdict is a finance guarantee.
+
 ## Setup
 Two parts: a Python engine (does the work) and a TypeScript MCP server (the interface).
 ```
