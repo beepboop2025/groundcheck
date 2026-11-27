@@ -53,10 +53,10 @@ server.tool(
     "binding the evidence and model route. Sufficiency other than sufficient (insufficient, " +
     "no_sources, no_stance, conflict) is a reason to abstain or escalate. When " +
     "guarantee.certified is true, the error probability is calibrated to at most " +
-    "guarantee.alpha, so supported plus certified can gate a decision. Compound claims are " +
-    "verified part by part and recombined weakest-link. Limits: evidence is web, " +
-    "encyclopedic and news sources, so very recent, private, niche or opinion claims return " +
-    "unverified or insufficient rather than a guess. The guarantee exists only on calibrated " +
+    "guarantee.alpha, so supported plus certified is the strongest signal; a person or a " +
+    "rule decides. Compound claims are verified part by part and recombined weakest-link. " +
+    "Limits: evidence is web, encyclopedic and news sources, so very recent, private, niche " +
+    "or opinion claims return unverified or insufficient. The guarantee exists only on calibrated " +
     "deployments, for claims exchangeable with the calibration set, which holds no finance " +
     "figures. It checks source support, not ultimate truth. Free.",
   {

@@ -17,6 +17,20 @@ after the fact: one signed, offline-verifiable receipt binding
 3. **content** — grounded verdicts (supported / refuted / unverified, with
    confidence and cited sources) over the factual claims in the response.
 
+## AI disclosure
+
+A delivery receipt is partly AI. The schema conformance check, the payment
+receipt binding, the hashes and the signature are rule-based and use no
+model. The claim checks under `grounding` use the same stance step as
+`/verify` and `/check`, an opt-in AI service: a language model labels each
+retrieved source as supporting, refuting or neutral on a claim, and a fixed
+rule turns those labels into the claim's verdict. So the claim verdicts, and
+a `delivery_verdict` that rests on them, are model-assisted. The calibration
+set holds general-knowledge and ticker-identity claims, not finance figures,
+so no claim verdict here is a finance guarantee. Every delivery result
+carries the statement for this route in its `ai_disclosure` field
+([README](../README.md#ai-disclosure)).
+
 ## The delivery verdict
 
 Consistency, never merit — "as advertised and not contradicted", not "good":
@@ -78,18 +92,25 @@ signature fails. A saved response JSON is a self-contained dispute artifact.
   buyer committed to at attestation time — which is exactly what a dispute
   needs both sides to have fixed in advance.
 - **That the service is good**, or that unverified claims are false. Same
-  epistemics as every Groundcheck verdict ([attested-receipts.md](attested-receipts.md)).
+  epistemics as every Groundcheck verdict ([attested-receipts.md](attested-receipts.md)),
+  including the language model step behind each claim verdict
+  ([AI disclosure](#ai-disclosure)).
 
-## The loop pricing
+## Pricing
 
-Delivery attestation is the bundle tier of the verification loop:
+Delivery attestation is the bundle tier of the priced steps. Grounding a
+whole document (`/check`, an opt-in AI service) is not on the price list.
 
 | step | endpoint | price |
 |---|---|---|
 | extract | `POST /extract` | $0.005 |
-| ground | `POST /check` | $0.02 |
+| ground one claim | `POST /verify` | free, rate-limited |
+| ground a whole document | `POST /check` | not on the price list; an unpaid call still gets an x402 offer, and `GET /.well-known/x402` states its amount |
 | attest delivery (bundle) | `POST /attest-delivery` | $0.05 |
 
-An agent that only wants to see which claims a document makes pays half a
-cent; one that wants the full payment-to-delivery accountability trail pays
-five. All prices are operator dials (`GROUNDCHECK_X402_PRICE_*`, docs/x402.md).
+An agent that only wants to see which claims a document makes pays the
+extract price; one that wants the full payment-to-delivery accountability
+trail pays the bundle price, whose claim checks use the language model step
+described above. All prices are operator dials (`GROUNDCHECK_X402_PRICE_*`,
+[x402.md](x402.md)), and `GET /.well-known/x402` on a deployment states what
+it charges.

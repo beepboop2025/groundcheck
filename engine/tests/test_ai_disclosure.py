@@ -11,11 +11,14 @@ pins the statement in four places:
    never do, and the New York Fed route answers without it;
 2. every result (REST JSON and MCP tool text) carries the statement for its
    route from disclosure.py, and the signed receipts still verify;
-3. the advertised MCP metadata on both surfaces carries the short forms (the
-   scanner rules themselves live in test_metadata_hygiene.py);
-4. the copy: README, npm README, both llms.txt copies, landing page, docs and
-   SKILL.md disclose it, /check carries no typed price, and every other typed
-   price equals the engine's configured default.
+3. the advertised MCP metadata on both surfaces carries the short forms, and
+   no description, instruction or prompt lets a verdict make the decision (AI
+   never approves; the scanner rules themselves live in
+   test_metadata_hygiene.py);
+4. the copy: README, npm README, both llms.txt copies, landing page,
+   docs/x402.md, docs/delivery-attestation.md and SKILL.md disclose it, /check
+   carries no typed price, and every other typed price equals the engine's
+   configured default.
 """
 from __future__ import annotations
 
@@ -265,6 +268,31 @@ def test_server_instructions_disclose_the_model():
     assert disclosure.SERVER_NOTE in init["instructions"]
 
 
+# AI never approves: a model-assisted verdict is a signal for a person or a
+# rule, so nothing an agent reads may offer it as the gate on a decision.
+GATES_A_DECISION = re.compile(r"gate (?:a |the )?decisions?", re.I)
+
+
+def _agent_facing_text():
+    init = mcp_http._handle_initialize(1, {})["result"]
+    yield "hosted instructions", init["instructions"]
+    for surface, tools in (("hosted", _hosted()), ("stdio", _stdio())):
+        for name, text in tools.items():
+            yield f"{surface} {name}", text
+    for name, (title, desc, args, body) in mcp_http.PROMPTS.items():
+        yield f"prompt {name}", " ".join((title, desc, body({a["name"]: "x" for a in args})))
+    for rel in ("README.md", "server/README.md", "llms.txt", "SKILL.md",
+                "docs/x402.md", "docs/delivery-attestation.md"):
+        yield rel, _read(rel)
+
+
+def test_no_surface_lets_a_verdict_make_the_decision():
+    bad = [where for where, text in _agent_facing_text() if GATES_A_DECISION.search(text)]
+    assert not bad, f"a verdict offered as the gate on a decision: {bad}"
+    for surface in (_hosted, _stdio):
+        assert "a person or a rule decides" in surface()["verify_claim"], surface.__name__
+
+
 # ---- 5. the copy ----------------------------------------------------------------
 
 def _read(rel: str) -> str:
@@ -288,6 +316,7 @@ COPY = {
     "server/README.md": lambda: _section(_read("server/README.md")),
     "llms.txt": lambda: _section(_read("llms.txt")),
     "SKILL.md": lambda: _section(_read("SKILL.md")),
+    "docs/delivery-attestation.md": lambda: _section(_read("docs/delivery-attestation.md")),
     "landing page": _landing_note,
 }
 
@@ -312,6 +341,14 @@ def test_readme_table_covers_every_route():
         assert f"`POST {route}`" in table, route
 
 
+def test_delivery_doc_names_the_model_step_in_the_bundle():
+    doc = _read("docs/delivery-attestation.md")
+    note = _section(doc)
+    assert "claim checks" in note and "language model" in note
+    assert "no claim verdict here is a finance guarantee" in note
+    assert "language model" in _section(doc, "## What it does not prove")
+
+
 def _amount(value: float) -> str:
     return f"{value:g}"
 
@@ -321,10 +358,15 @@ def test_check_carries_no_typed_price():
     readme = _section(_read("README.md"), "### Machine-payable hosting (x402)")
     pricing = _section(_read("llms.txt"), "## Pricing")
     docs = _read("docs/x402.md").split("## Enabling it")[0]
-    for where, text in (("README", readme), ("llms.txt", pricing), ("docs/x402.md", docs)):
+    delivery = _read("docs/delivery-attestation.md")
+    for where, text in (("README", readme), ("llms.txt", pricing), ("docs/x402.md", docs),
+                        ("docs/delivery-attestation.md", delivery)):
         assert f"${check}" not in text and f"USD {check}" not in text \
             and f"({check})" not in text, f"{where} still lists the /check price"
         assert "not on the price list" in text, where
+    remote = _section(_read("llms.txt"), "## Remote MCP (no install)")
+    assert "check_citations is not on the price list" in remote
+    assert not DASHES.search(remote), "llms.txt Remote MCP line: em or en dash"
 
 
 def test_typed_prices_match_the_engine_defaults():
@@ -352,3 +394,11 @@ def test_typed_prices_match_the_engine_defaults():
     loop = re.search(r"extract cheap \(\$(\d+\.\d+)\).*?bundle \(\$(\d+\.\d+)", docs, re.S)
     assert loop and float(loop.group(1)) == prices["/extract"] \
         and float(loop.group(2)) == prices["/attest-delivery"]
+
+    delivery = _read("docs/delivery-attestation.md")
+    rows = re.findall(r"\| `POST (/[a-z-]+)` \| \$(\d+(?:\.\d+)?) \|", delivery)
+    assert {p for p, _ in rows} == {"/extract", "/attest-delivery"}
+    for path, amount in rows:
+        assert float(amount) == prices[path], ("docs/delivery-attestation.md", path)
+    assert len(re.findall(r"\$\d", delivery)) == len(rows), \
+        "docs/delivery-attestation.md types a price outside its price table"
