@@ -50,7 +50,7 @@ for it at `http://127.0.0.1:8723` and can spawn it from a local clone; set
 `GROUNDCHECK_ENGINE_URL=https://groundcheck.seiche.info` to use the hosted
 engine instead. On the hosted engine `verify_claim` is free forever; the
 other verification tools are pay-per-call (x402, USDC on Base) after a small
-free daily trial — a 402 response arrives as a readable tool result with the
+free daily trial. A 402 response arrives as a readable tool result with the
 offer, never an opaque error. A local engine is free and unmetered.
 
 Source, engine code, and self hosting guide:

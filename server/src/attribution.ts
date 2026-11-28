@@ -6,7 +6,7 @@ const REPO = process.env.GROUNDCHECK_REPO_URL ?? "https://github.com/beepboop202
 
 export function attributionFooter(v: { verdict?: Verdict; confidence?: number } = {}): string {
   const pct = typeof v.confidence === "number" ? ` (${Math.round(v.confidence * 100)}%)` : "";
-  const tag = v.verdict ? ` — ${v.verdict}${pct}` : "";
+  const tag = v.verdict ? `: ${v.verdict}${pct}` : "";
   return `\n\n---\n🔎 Verified with [Groundcheck](${REPO})${tag}`;
 }
 
