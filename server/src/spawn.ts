@@ -55,11 +55,11 @@ export async function ensureEngine(): Promise<EnsureResult> {
 
   const engineDir = locateEngineDir();
   if (!engineDir) {
-    return { status: "not-found", detail: "engine/ not found — set GROUNDCHECK_ENGINE_DIR or start it manually" };
+    return { status: "not-found", detail: "engine/ not found: set GROUNDCHECK_ENGINE_DIR or start it manually" };
   }
 
   const python = process.env.GROUNDCHECK_PYTHON ?? "python3";
-  // stdio: never touch fd 1 — that's the MCP JSON-RPC channel. Engine logs -> our stderr.
+  // stdio: never touch fd 1, that's the MCP JSON-RPC channel. Engine logs -> our stderr.
   child = spawn(python, ["-m", "groundcheck_engine"], {
     cwd: engineDir,
     env: childEnv(),

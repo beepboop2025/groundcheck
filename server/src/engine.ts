@@ -5,7 +5,7 @@ import type { CheckResult, DeliveryResult, ExtractResult, ResolveResult, VerifyR
 export const ENGINE_URL = process.env.GROUNDCHECK_ENGINE_URL ?? "http://127.0.0.1:8723";
 
 // A hosted engine answered 402: the tool call is fine, payment is the missing
-// piece. Tool handlers turn this into an isError result carrying the offer —
+// piece. Tool handlers turn this into an isError result carrying the offer,
 // never a thrown protocol error the agent can't read.
 export class PaymentRequiredError extends Error {
   readonly offer: Record<string, unknown> | null;
@@ -25,7 +25,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   if (res.status === 402) {
     // Hosted engines may charge per call via x402. Surface the offer instead
     // of a bare error, and point at the always-free path. The body may be a
-    // v1 envelope (maxAmountRequired) or a v2 one (amount) — read both.
+    // v1 envelope (maxAmountRequired) or a v2 one (amount); read both.
     const info = (await res.json().catch(() => null)) as {
       error?: string;
       accepts?: Array<{ maxAmountRequired?: string; amount?: string; network?: string }>;
@@ -36,7 +36,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     throw new PaymentRequiredError(
       `This tool is paid on the hosted engine (x402)${usd ? `: $${usd} USDC per call on ${offer?.network}` : ""}. ` +
         `${info?.error ?? ""} Retry with an X-PAYMENT header (offers at ${ENGINE_URL}/.well-known/x402), ` +
-        `use the free verify_claim tool, or run a local engine — it is free: ` +
+        `use the free verify_claim tool, or run a local engine (it is free): ` +
         `https://github.com/beepboop2025/groundcheck`,
       (info as Record<string, unknown> | null) ?? null,
     );

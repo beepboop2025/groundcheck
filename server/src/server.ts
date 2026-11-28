@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Groundcheck — MCP server (thin protocol layer). stdout is the JSON-RPC channel;
+// Groundcheck: MCP server (thin protocol layer). stdout is the JSON-RPC channel;
 // every human-facing message goes to stderr. All logic lives in the Python engine.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -22,7 +22,7 @@ const server = new McpServer({ name: "groundcheck", version: "0.6.1" });
 
 // A 402 from a hosted engine is a payment offer, not a failure: return it as a
 // readable isError result (with the raw offer in structuredContent) so the
-// agent can pay and retry — a thrown error would surface as an opaque protocol
+// agent can pay and retry; a thrown error would surface as an opaque protocol
 // fault the agent cannot act on.
 function paymentRequired(err: PaymentRequiredError) {
   return {
@@ -32,7 +32,7 @@ function paymentRequired(err: PaymentRequiredError) {
   };
 }
 
-// Honest degradation when the engine isn't running — never a fabricated verdict.
+// Honest degradation when the engine isn't running, never a fabricated verdict.
 function engineDown(claim: string): VerifyResult {
   return {
     claim,
@@ -230,19 +230,19 @@ server.tool(
   async () => ({ content: [{ type: "text", text: attributionBadge() }] })
 );
 
-// Make sure an engine is available before exposing tools — reuse a running one,
+// Make sure an engine is available before exposing tools: reuse a running one,
 // otherwise auto-spawn it. Never throws; tools degrade honestly if it's absent.
 const engine = await ensureEngine();
 const ENGINE_STATUS: Record<typeof engine.status, string> = {
   reachable: `engine reachable ✓ (${ENGINE_URL})`,
-  spawned: `engine auto-started ✓ — ${engine.detail}`,
+  spawned: `engine auto-started ✓: ${engine.detail}`,
   disabled: `engine auto-spawn disabled (GROUNDCHECK_NO_SPAWN); expecting one at ${ENGINE_URL}`,
-  "not-found": `engine UNREACHABLE — ${engine.detail}`,
-  failed: `engine UNREACHABLE — ${engine.detail}`,
+  "not-found": `engine UNREACHABLE: ${engine.detail}`,
+  failed: `engine UNREACHABLE: ${engine.detail}`,
 };
 
 // Exit when the client goes away (stdin EOF / transport close) so the process
-// `exit` handler stops any engine we auto-spawned — otherwise it would orphan.
+// `exit` handler stops any engine we auto-spawned; otherwise it would orphan.
 // Listen on both the protocol close and stdin directly (belt and suspenders).
 const shutdown = () => process.exit(0);
 server.server.onclose = shutdown;
@@ -251,4 +251,4 @@ process.stdin.once("close", shutdown);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(`groundcheck MCP server up — ${ENGINE_STATUS[engine.status]}`);
+console.error(`groundcheck MCP server up: ${ENGINE_STATUS[engine.status]}`);
