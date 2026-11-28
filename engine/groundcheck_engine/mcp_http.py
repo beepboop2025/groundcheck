@@ -33,7 +33,7 @@ from . import config, disclosure, x402
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "groundcheck"
-SERVER_VERSION = "0.7.2"
+SERVER_VERSION = "0.7.3"
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600

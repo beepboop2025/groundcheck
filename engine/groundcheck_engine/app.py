@@ -43,7 +43,7 @@ from .verdict import compute_verdict
 
 app = FastAPI(
     title="Groundcheck Engine",
-    version="0.7.2",
+    version="0.7.3",
     contact={
         "name": "Groundcheck",
         "url": "https://github.com/beepboop2025/groundcheck",

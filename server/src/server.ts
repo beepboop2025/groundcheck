@@ -18,7 +18,7 @@ import { ensureEngine } from "./spawn.js";
 import { attributionBadge, attributionFooter } from "./attribution.js";
 import type { VerifyResult } from "./types.js";
 
-const server = new McpServer({ name: "groundcheck", version: "0.6.0" });
+const server = new McpServer({ name: "groundcheck", version: "0.6.1" });
 
 // A 402 from a hosted engine is a payment offer, not a failure: return it as a
 // readable isError result (with the raw offer in structuredContent) so the
